@@ -25,7 +25,9 @@ export default function AISettingsPage() {
     const values: Record<string, unknown> = {};
     for (const [key, raw] of Object.entries(form)) {
       const current = data!.values[key];
-      if (JSON_KEYS.includes(key)) values[key] = JSON.parse(raw || "{}");
+      if (JSON_KEYS.includes(key)) {
+        try { values[key] = JSON.parse(raw || "{}"); } catch { action.setError(`${key}: некорректный JSON`); return; }
+      }
       else if (typeof current === "boolean") values[key] = raw === "true";
       else if (typeof current === "number") values[key] = Number(raw);
       else values[key] = raw;
@@ -63,7 +65,7 @@ export default function AISettingsPage() {
             <textarea rows={4} value={form[key] ?? "{}"} onChange={(e) => setForm({ ...form, [key]: e.target.value })} style={{ fontFamily: "monospace" }} />
           </Field>
         ))}
-        <button className="primary" disabled={action.busy} onClick={() => { try { save(); } catch (e) { action.setError((e as Error).message); } }}>Сохранить</button>
+        <button className="primary" disabled={action.busy} onClick={save}>Сохранить</button>
       </div>
       <div className="card table-wrap">
         <h2>Последние AI-вызовы</h2>
