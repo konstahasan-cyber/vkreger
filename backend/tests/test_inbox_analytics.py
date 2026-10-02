@@ -30,6 +30,9 @@ def _secret(db, community_id):  # noqa: ANN001
 
 
 def test_callback_confirmation_and_secret(client, admin_headers, db, vk, project):
+    no_secret = client.post(f"/api/vk/callback/{project['community_id']}",
+                            json={"type": "message_new", "group_id": 101, "object": {}})
+    assert no_secret.status_code == 403
     info = _enable_callback(client, admin_headers, project)
     assert info["url"] == f"https://panel.example.com/api/vk/callback/{project['community_id']}"
     url = f"/api/vk/callback/{project['community_id']}"

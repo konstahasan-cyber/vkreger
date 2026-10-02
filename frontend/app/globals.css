@@ -1,0 +1,96 @@
+:root {
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --text: #1d2330;
+  --muted: #6b7385;
+  --border: #e3e6ec;
+  --primary: #2a6ff3;
+  --primary-ink: #ffffff;
+  --danger: #d6455d;
+  --ok: #1f9d63;
+  --warn: #c98a12;
+  --side: #161b26;
+  --side-text: #c7cdd9;
+  --side-active: #2a3446;
+  --radius: 8px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f131a;
+    --panel: #171c25;
+    --text: #e3e7ef;
+    --muted: #8d96a8;
+    --border: #283041;
+    --side: #0b0e14;
+    --side-active: #1f2735;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+a { color: var(--primary); text-decoration: none; }
+h1 { font-size: 22px; margin: 0 0 16px; }
+h2 { font-size: 17px; margin: 0 0 12px; }
+h3 { font-size: 15px; margin: 0 0 8px; }
+.layout { display: flex; min-height: 100vh; }
+.sidebar { width: 220px; flex-shrink: 0; background: var(--side); color: var(--side-text); padding: 16px 10px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+.sidebar .brand { font-weight: 700; font-size: 18px; color: #fff; padding: 4px 10px 16px; }
+.sidebar a { display: block; padding: 7px 10px; border-radius: 6px; color: var(--side-text); }
+.sidebar a.active, .sidebar a:hover { background: var(--side-active); color: #fff; }
+.sidebar .logout { margin-top: 16px; width: 100%; }
+.main { flex: 1; min-width: 0; padding: 24px; }
+.topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+.grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.grid-2 { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.stat { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+.stat .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+.stat .value { font-size: 24px; font-weight: 600; margin-top: 4px; }
+.stat .sub { color: var(--muted); font-size: 12px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; }
+.table-wrap { overflow-x: auto; }
+button, .btn { font: inherit; border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 6px; padding: 6px 12px; cursor: pointer; white-space: nowrap; }
+button:hover { border-color: var(--primary); }
+button.primary { background: var(--primary); border-color: var(--primary); color: var(--primary-ink); }
+button.danger { color: var(--danger); }
+button.small { padding: 2px 8px; font-size: 12px; }
+button:disabled { opacity: .5; cursor: default; }
+input, select, textarea { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; width: 100%; }
+textarea { min-height: 80px; resize: vertical; }
+label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.field { margin-bottom: 12px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row > .grow { flex: 1; }
+.form-grid { display: grid; gap: 0 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; background: var(--border); white-space: nowrap; }
+.badge.ok { background: rgba(31,157,99,.15); color: var(--ok); }
+.badge.err { background: rgba(214,69,93,.15); color: var(--danger); }
+.badge.warn { background: rgba(201,138,18,.15); color: var(--warn); }
+.badge.info { background: rgba(42,111,243,.13); color: var(--primary); }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.error-box { background: rgba(214,69,93,.1); color: var(--danger); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; white-space: pre-wrap; }
+.ok-box { background: rgba(31,157,99,.1); color: var(--ok); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; flex-wrap: wrap; }
+.tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; }
+.tabs button.active { border-bottom-color: var(--primary); color: var(--primary); }
+.post-text { white-space: pre-wrap; }
+.preview-img { max-width: 220px; border-radius: 6px; border: 1px solid var(--border); }
+.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; z-index: 50; overflow-y: auto; }
+.modal { background: var(--panel); border-radius: var(--radius); padding: 20px; width: 100%; max-width: 720px; }
+.calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.calendar .day { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; min-height: 110px; padding: 6px; font-size: 12px; }
+.calendar .day.today { border-color: var(--primary); }
+.calendar .item { border-radius: 4px; padding: 2px 4px; margin-top: 3px; background: var(--bg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar { height: 8px; background: var(--primary); border-radius: 4px; }
+.login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+.login-page .card { width: 360px; }
+pre.json { white-space: pre-wrap; font-size: 12px; background: var(--bg); padding: 8px; border-radius: 6px; max-height: 300px; overflow: auto; }
+@media (max-width: 800px) {
+  .layout { flex-direction: column; }
+  .sidebar { width: 100%; height: auto; position: static; display: flex; flex-wrap: wrap; gap: 2px; }
+  .sidebar .brand { width: 100%; }
+  .main { padding: 16px; }
+}

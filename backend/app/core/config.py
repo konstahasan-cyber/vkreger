@@ -7,10 +7,10 @@ overridden at runtime from the admin panel (see ``app.services.settings_service`
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any
+from typing import Annotated, Any
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # USD per 1M tokens.  Defaults only — override with AI_PRICING_JSON or in AI Settings.
 DEFAULT_PRICING: dict[str, dict[str, float]] = {
@@ -43,7 +43,8 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "INFO"
     API_PREFIX: str = "/api"
-    CORS_ORIGINS: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+    # comma-separated list or JSON array
+    CORS_ORIGINS: Annotated[list[str], NoDecode] = Field(default_factory=lambda: ["http://localhost:3000"])
     PUBLIC_BASE_URL: str = "http://localhost:8000"  # used for VK Callback API server URL
     MEDIA_ROOT: str = "/data/media"
 
@@ -121,7 +122,11 @@ class Settings(BaseSettings):
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def _split_origins(cls, v: Any) -> Any:
-        if isinstance(v, str) and not v.strip().startswith("["):
+        if isinstance(v, str):
+            if v.strip().startswith("["):
+                import json
+
+                return json.loads(v)
             return [o.strip() for o in v.split(",") if o.strip()]
         return v
 

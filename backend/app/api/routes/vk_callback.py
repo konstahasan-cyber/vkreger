@@ -32,7 +32,8 @@ async def callback(community_id: int, request: Request, db: Session = Depends(ge
     if event.get("type") == "confirmation":
         return community.confirmation_code or ""
     secret = community.callback_secret
-    if secret and not hmac.compare_digest(str(event.get("secret", "")), secret):
+    # events are accepted only after Callback API was enabled for the community (secret configured)
+    if not secret or not hmac.compare_digest(str(event.get("secret", "")), secret):
         logger.warning("Callback for community %s rejected: bad secret", community_id)
         return PlainTextResponse("forbidden", status_code=403)
     item = ingest_event(db, community, event)

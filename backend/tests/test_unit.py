@@ -102,3 +102,15 @@ def test_editor_local_cleanup():
     assert "не секрет" not in text.lower()
     assert "**" not in text and "##" not in text
     assert len(found) == 2
+
+
+def test_settings_parse_env_formats(monkeypatch):
+    from app.core.config import Settings
+
+    monkeypatch.setenv("CORS_ORIGINS", "http://a.example, http://b.example")
+    monkeypatch.setenv("AI_MODEL_OVERRIDES", '{"project_setup": "gpt-5.4"}')
+    s = Settings(_env_file=None)
+    assert s.CORS_ORIGINS == ["http://a.example", "http://b.example"]
+    assert s.AI_MODEL_OVERRIDES == {"project_setup": "gpt-5.4"}
+    monkeypatch.setenv("CORS_ORIGINS", '["http://c.example"]')
+    assert Settings(_env_file=None).CORS_ORIGINS == ["http://c.example"]
