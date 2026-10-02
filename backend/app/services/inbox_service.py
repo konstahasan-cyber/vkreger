@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -70,7 +71,47 @@ def notify_operator(db: Session, *, kind: str, title: str, body: str, project_id
             logger.warning("Operator webhook failed: %s", type(exc).__name__)
 
 
+TRIAGE_STALE_MINUTES = 15
+COST_RETRY_MINUTES = 60
+
+
+def claim_for_triage(db: Session, item_id: int, *, manual: bool = False) -> bool:
+    """Atomically move an item to ``triaging`` so concurrent runs never process it twice."""
+    allowed = [ReplyStatus.NEW.value]
+    if manual:
+        allowed += [ReplyStatus.SUGGESTED.value, ReplyStatus.PENDING_APPROVAL.value, ReplyStatus.FAILED.value,
+                    ReplyStatus.IGNORED.value, ReplyStatus.REJECTED.value]
+    result = db.execute(
+        update(InboxItem).where(InboxItem.id == item_id, InboxItem.reply_status.in_(allowed))
+        .values(reply_status=ReplyStatus.TRIAGING.value, updated_at=utcnow())
+    )
+    db.commit()
+    return result.rowcount == 1
+
+
+def pending_triage_ids(db: Session, limit: int = 50) -> list[int]:
+    """Items waiting for triage: fresh ones, ones skipped by the cost limit an hour+ ago,
+    and ones stuck in ``triaging`` after a worker crash."""
+    now = utcnow()
+    stale = db.execute(
+        update(InboxItem)
+        .where(InboxItem.reply_status == ReplyStatus.TRIAGING.value,
+               InboxItem.updated_at < now - timedelta(minutes=TRIAGE_STALE_MINUTES))
+        .values(reply_status=ReplyStatus.NEW.value)
+    )
+    if stale.rowcount:
+        db.commit()
+    return list(db.execute(
+        select(InboxItem.id).where(
+            InboxItem.reply_status == ReplyStatus.NEW.value,
+            or_(InboxItem.error.is_(None), InboxItem.updated_at < now - timedelta(minutes=COST_RETRY_MINUTES)),
+        ).order_by(InboxItem.id).limit(limit)
+    ).scalars())
+
+
 def triage_item(db: Session, item: InboxItem, *, automatic: bool = True) -> InboxItem:
+    """Classify a claimed item and act on it. The item must be in ``triaging`` state
+    (see ``claim_for_triage``); on AI unavailability it goes back to ``new``."""
     community = db.get(Community, item.community_id)
     project = community.project if community else None
     if project is None:
@@ -86,15 +127,18 @@ def triage_item(db: Session, item: InboxItem, *, automatic: bool = True) -> Inbo
         data = community_manager.triage(AIService(db), project, kind=item.kind, text=item.text,
                                         context_hint=context_hint, automatic=automatic)
     except (CostLimitExceeded, AIError) as exc:
+        item.reply_status = ReplyStatus.NEW.value  # retried later by triage_pending
         item.error = str(exc)
         syslog(db, LogLevel.WARNING, "inbox", f"Triage of inbox item #{item.id} skipped: {exc}", project_id=project.id)
         db.flush()
         return item
+    item.error = None
     item.classification = data.get("classification", InboxClass.OTHER.value)
     item.confidence = float(data.get("confidence") or 0)
     item.suggested_reply = data.get("reply")
 
-    if item.classification == InboxClass.LEAD.value:
+    existing_lead = db.execute(select(Lead.id).where(Lead.inbox_item_id == item.id)).first()
+    if item.classification == InboxClass.LEAD.value and not existing_lead:
         lead_data = data.get("lead") or {}
         lead = Lead(project_id=project.id, inbox_item_id=item.id, vk_user_id=item.from_id, name=lead_data.get("name"),
                     contact=lead_data.get("contact"), need=lead_data.get("need") or item.text[:500],
@@ -113,13 +157,25 @@ def triage_item(db: Session, item: InboxItem, *, automatic: bool = True) -> Inbo
     elif mode == AutoReplyMode.OFF.value:
         item.reply_status = ReplyStatus.SUGGESTED.value
     elif (mode == AutoReplyMode.AUTO.value and item.classification in (project.auto_reply_types or [])
-          and item.classification not in NEVER_AUTO):
+          and item.classification not in NEVER_AUTO and can_reply(community, item)):
         db.flush()
-        send_reply(db, item, item.suggested_reply, user_id=None)
+        try:
+            send_reply(db, item, item.suggested_reply, user_id=None)
+        except Exception as exc:  # noqa: BLE001 — never lose the triage result because of a reply failure
+            item.reply_status = ReplyStatus.FAILED.value
+            item.error = f"auto-reply failed: {type(exc).__name__}: {exc}"[:1000]
+            syslog(db, LogLevel.ERROR, "inbox", f"Auto-reply to inbox item #{item.id} failed: {exc}",
+                   project_id=item.project_id)
     else:
         item.reply_status = ReplyStatus.PENDING_APPROVAL.value
     db.flush()
     return item
+
+
+def can_reply(community: Community, item: InboxItem) -> bool:
+    if item.kind == InboxKind.MESSAGE.value:
+        return bool(community.community_token)
+    return item.vk_post_id is not None
 
 
 def send_reply(db: Session, item: InboxItem, text: str, *, user_id: int | None) -> InboxItem:
@@ -128,6 +184,9 @@ def send_reply(db: Session, item: InboxItem, text: str, *, user_id: int | None) 
     if item.reply_status == ReplyStatus.SENT.value:
         raise ValidationAppError("Reply already sent")
     community = db.get(Community, item.community_id)
+    if not can_reply(community, item):
+        raise ValidationAppError("Sending messages requires a community access token"
+                                 if item.kind == InboxKind.MESSAGE.value else "Comment has no post id")
     try:
         if item.kind == InboxKind.COMMENT.value:
             with client_for_community(community) as client:

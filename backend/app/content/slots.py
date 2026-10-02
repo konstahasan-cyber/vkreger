@@ -11,7 +11,8 @@ from app.models.content import Post
 from app.models.enums import PostStatus
 from app.models.project import Project
 
-ACTIVE_STATUSES = [PostStatus.APPROVED.value, PostStatus.SCHEDULED.value, PostStatus.PUBLISHING.value,
+# drafts with a planned time hold their slot while waiting for approval
+ACTIVE_STATUSES = [PostStatus.DRAFT.value, PostStatus.APPROVED.value, PostStatus.SCHEDULED.value, PostStatus.PUBLISHING.value,
                    PostStatus.PUBLISHED.value]
 
 

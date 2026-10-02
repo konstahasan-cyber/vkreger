@@ -103,6 +103,9 @@ def assign(proxy_id: int, account_id: int, request: Request, db: Session = Depen
 def delete_proxy(proxy_id: int, request: Request, db: Session = Depends(get_db),
                  user: User = Depends(require(Permission.MANAGE_PROXIES))) -> None:
     proxy = _get(db, proxy_id)
+    if proxy.account is not None:
+        # deleting would silently switch the account to a direct connection
+        raise HTTPException(409, f"Proxy is bound to account #{proxy.account.id}; unbind or replace it first")
     audit(db, user.id, "proxy.delete", "proxy", proxy.id, {"host": proxy.host}, client_ip(request))
     db.delete(proxy)
     db.commit()

@@ -81,7 +81,11 @@ class VKClient:
                 raise VKNetworkError(f"{method}: {type(exc).__name__}") from exc
             if response.status_code >= 500:
                 raise VKNetworkError(f"{method}: HTTP {response.status_code}")
-            payload = response.json()
+            try:
+                payload = response.json()
+            except ValueError:
+                # e.g. an HTML error page from a proxy (407/403) — treat as a network problem
+                raise VKNetworkError(f"{method}: non-JSON response (HTTP {response.status_code})") from None
             if "error" in payload:
                 err = payload["error"]
                 exc = VKAPIError(
@@ -112,7 +116,10 @@ class VKClient:
             response = self._http.post(upload_url, files={field: (filename, content, mime)})
         except httpx.HTTPError as exc:
             raise VKNetworkError(f"upload: {type(exc).__name__}") from exc
-        data = response.json()
+        try:
+            data = response.json()
+        except ValueError:
+            raise VKNetworkError(f"upload: non-JSON response (HTTP {response.status_code})") from None
         if "error" in data:
             raise VKAPIError(0, str(data["error"]), "upload")
         return data
@@ -122,7 +129,10 @@ class VKClient:
             response = self._http.get(url, params=params, timeout=timeout)
         except httpx.HTTPError as exc:
             raise VKNetworkError(f"GET {type(exc).__name__}") from exc
-        return response.json()
+        try:
+            return response.json()
+        except ValueError:
+            raise VKNetworkError(f"GET: non-JSON response (HTTP {response.status_code})") from None
 
     # ------------------------------------------------------------- users
     def get_current_user(self) -> dict:

@@ -40,8 +40,14 @@ class AIService:
         row = AIUsage(model=model, operation=operation, agent=agent, input_tokens=usage.input_tokens,
                       output_tokens=usage.output_tokens, cached_tokens=usage.cached_tokens, images=images,
                       estimated_cost=cost, project_id=project_id, success=success, automatic=automatic)
-        self.db.add(row)
-        self.db.flush()
+        # Own transaction: spend must be recorded even if the caller's business
+        # transaction rolls back later (otherwise the cost guard would never see it).
+        from app.db.session import SessionLocal
+
+        bind = self.db.get_bind()
+        with SessionLocal(bind=bind) as usage_db:
+            usage_db.add(row)
+            usage_db.commit()
         return row
 
     def run(

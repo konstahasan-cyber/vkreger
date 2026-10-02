@@ -96,6 +96,7 @@ class InboxClass(StrEnum):
 
 class ReplyStatus(StrEnum):
     NEW = "new"  # not processed by AI yet
+    TRIAGING = "triaging"  # claimed by a worker, AI classification in progress
     SUGGESTED = "suggested"  # AI prepared a reply, shown only (OFF mode)
     PENDING_APPROVAL = "pending_approval"
     APPROVED = "approved"

@@ -14,7 +14,7 @@ from app.models.user import User
 from app.schemas.common import Page
 from app.schemas.inbox import InboxItemOut, LeadCreate, LeadOut, LeadUpdate, NotificationOut, ReplyRequest
 from app.services.audit import audit
-from app.services.inbox_service import send_reply, triage_item
+from app.services.inbox_service import claim_for_triage, send_reply, triage_item
 
 router = APIRouter(tags=["inbox"])
 
@@ -72,7 +72,9 @@ def retriage(item_id: int, db: Session = Depends(get_db), _: User = Depends(requ
     item = _item(db, item_id)
     if item.reply_status == ReplyStatus.SENT.value:
         raise HTTPException(409, "Already answered")
-    item.error = None
+    if not claim_for_triage(db, item.id, manual=True):
+        raise HTTPException(409, "Item is being processed")
+    db.refresh(item)
     triage_item(db, item, automatic=False)
     db.commit()
     return item

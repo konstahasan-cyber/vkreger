@@ -116,7 +116,7 @@ def publish_claimed(db: Session, post: Post) -> Post:
     post.attempts = (post.attempts or 0) + 1
     try:
         _do_publish(db, post)
-    except (VKError, ValidationAppError, OSError) as exc:
+    except (VKError, ValidationAppError, OSError, ValueError, KeyError, TypeError) as exc:
         message = f"{type(exc).__name__}: {exc}"
         post.last_error = message[:2000]
         retry = _is_retryable(exc) and post.attempts < settings.PUBLISH_MAX_ATTEMPTS
@@ -173,7 +173,7 @@ def recover_stuck(db: Session) -> list[int]:
                     if (item.get("text") or "").strip() == body:
                         found_id = int(item["id"])
                         break
-            except VKError as exc:
+            except (VKError, ValueError, KeyError) as exc:
                 syslog(db, LogLevel.WARNING, "publishing", f"Cannot reconcile post #{post.id}: {exc}",
                        project_id=post.project_id)
                 continue

@@ -43,7 +43,7 @@ class Lead(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
-    inbox_item_id: Mapped[int | None] = mapped_column(ForeignKey("inbox_items.id", ondelete="SET NULL"))
+    inbox_item_id: Mapped[int | None] = mapped_column(ForeignKey("inbox_items.id", ondelete="SET NULL"), unique=True)
     vk_user_id: Mapped[int | None] = mapped_column(BigInteger)
     name: Mapped[str | None] = mapped_column(String(255))
     contact: Mapped[str | None] = mapped_column(String(255))
