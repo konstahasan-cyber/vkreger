@@ -9,4 +9,6 @@ git fetch -q origin "$BRANCH"
 git checkout -q -B "$BRANCH" "origin/$BRANCH"
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --remove-orphans
 docker image prune -f >/dev/null
+chmod +x deploy/*.sh deploy/vk
+ln -sf "$DIR/deploy/vk" /usr/local/bin/vk
 echo "Готово: VKreger обновлён."

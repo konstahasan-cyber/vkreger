@@ -117,9 +117,7 @@ echo "============================================================"
 echo " VKreger запущен: $URL"
 [ "$CREATED_ENV" = 1 ] && echo " Вход: $ADMIN_EMAIL и ваш пароль"
 echo
-echo " Обновить:          sudo bash $DIR/deploy/update.sh"
-echo " Резервная копия:   sudo bash $DIR/deploy/backup.sh"
-echo " Логи:              cd $DIR && docker compose logs --tail 100 backend worker"
+echo " Управление: команда vk (vk update, vk restart, vk logs, vk status, vk env)"
 echo
 echo " ВАЖНО: сохраните копию файла $DIR/.env в надёжном месте."
 echo " В нём ключ шифрования токенов (ENCRYPTION_KEYS): без него"

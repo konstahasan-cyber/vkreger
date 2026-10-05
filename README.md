@@ -60,9 +60,13 @@ curl -fsSL https://raw.githubusercontent.com/konstahasan-cyber/vkreger/claude/cl
 пароль для входа, ключ OpenAI и домен. Затем поднимает панель за Caddy: с доменом — с автоматическим
 HTTPS (Let's Encrypt), без домена — по `http://IP-сервера`. Панель сама стартует после перезагрузки сервера.
 
-* Обновление: `sudo bash /opt/vkreger/deploy/update.sh` (перед обновлением делается резервная копия)
-* Резервная копия базы и картинок: `sudo bash /opt/vkreger/deploy/backup.sh` → `/opt/vkreger/backups`
-* Логи: `cd /opt/vkreger && docker compose logs --tail 100 backend worker`
+Управление — командой `vk`:
+
+* `vk update` — обновить до последней версии (перед обновлением делается резервная копия)
+* `vk restart`, `vk start`, `vk stop`, `vk status`
+* `vk logs` — логи в реальном времени
+* `vk backup` — резервная копия базы и картинок в `/opt/vkreger/backups`
+* `vk env` — изменить настройки (`.env`) и применить их
 
 Сохраните копию `/opt/vkreger/.env`: в нём ключ шифрования токенов.
 
