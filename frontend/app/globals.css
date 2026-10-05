@@ -39,7 +39,7 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
-  font: 14px/1.55 "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; }
+  font: 14px/1.55 "Apple Emoji VK", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; }
 a { color: var(--primary); text-decoration: none; }
 h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -.01em; }
 h2 { font-size: 18px; margin: 0 0 12px; }

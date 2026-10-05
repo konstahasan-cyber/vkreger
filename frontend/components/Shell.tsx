@@ -49,7 +49,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="layout">
       <nav className="sidebar">
-        <div className="brand"><span className="logo">✦</span>VKreger</div>
+        <div className="brand"><img src="/logo.svg" alt="" width={32} height={32} style={{ borderRadius: 10 }} />VKreger</div>
         {NAV.map((group) => (
           <div key={group.section}>
             <div className="section">{group.section}</div>
