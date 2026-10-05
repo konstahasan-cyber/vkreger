@@ -41,31 +41,21 @@ case "${1:-help}" in
            dc up -d --force-recreate caddy backend worker beat
            echo "Панель: $url  (сертификат HTTPS получается автоматически, первая загрузка может занять до минуты)" ;;
   hostdomain) need_root "$@"
-           # Use an already installed system Caddy (which owns 80/443 for other sites) as the HTTPS front.
+           # Use a Caddy that already owns 80/443 (systemd or another project's container) as the HTTPS front.
            port=$(grep -m1 '^HTTP_PORT=' .env | cut -d= -f2- || true); port=${port:-80}
            ip=$(curl -fsS -4 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
            d="${2:-auto}"; [ "$d" = auto ] && d="$(echo "$ip" | tr . -).sslip.io"
-           systemctl is-active --quiet caddy || { echo "Системный Caddy не запущен. Используйте: vk domain $d"; exit 1; }
-           cf=$(systemctl cat caddy 2>/dev/null | grep -m1 '^ExecStart=' | grep -o -- '--config [^ ]*' | awk '{print $2}')
-           cf=${cf:-/etc/caddy/Caddyfile}
-           [ -f "$cf" ] || { echo "Не нашёл конфиг системного Caddy ($cf). Пришлите вывод: systemctl cat caddy"; exit 1; }
-           bak="$cf.bak-vkreger-$(date +%Y%m%d%H%M%S)"; cp "$cf" "$bak"
-           sed -i '/# vkreger-begin/,/# vkreger-end/d' "$cf"
-           if [ "$d" != off ]; then
-             [ -n "$(tail -c1 "$cf")" ] && echo >> "$cf"
-             printf '# vkreger-begin (managed by: vk hostdomain)\n%s {\n\treverse_proxy 127.0.0.1:%s\n}\n# vkreger-end\n' "$d" "$port" >> "$cf"
-           fi
-           if ! caddy validate --config "$cf" --adapter caddyfile >/dev/null 2>&1; then
-             cp "$bak" "$cf"; echo "Конфиг не прошёл проверку — вернул как было ($bak). Ничего не изменено."; caddy validate --config "$cf" --adapter caddyfile 2>&1 | tail -3; exit 1
-           fi
-           if ! systemctl reload caddy; then cp "$bak" "$cf"; systemctl reload caddy || true; echo "Не удалось перезагрузить Caddy — вернул как было."; exit 1; fi
+           set +e
+           if [ "$d" = off ]; then bash deploy/caddy-site.sh remove; else bash deploy/caddy-site.sh add "$d" "$port"; fi
+           rc=$?; set -e
+           if [ $rc = 3 ]; then echo "Не нашёл Caddy, который держит порты 80/443. Если порты свободны: vk domain $d"; exit 1; fi
+           [ $rc = 0 ] || exit 1
            sed -i '/^PUBLIC_BASE_URL=/d;/^CORS_ORIGINS=/d' .env
            if [ "$d" = off ]; then url="http://$ip:$port"; [ "$port" = 80 ] && url="http://$ip"; else url="https://$d"; fi
            printf 'PUBLIC_BASE_URL=%s\nCORS_ORIGINS=%s\n' "$url" "$url" >> .env
            dc up -d --force-recreate backend worker beat >/dev/null
            echo "Готово. Панель: $url"
-           [ "$d" != off ] && echo "Сертификат HTTPS Caddy получает автоматически — первая загрузка может занять до минуты."
-           echo "Резервная копия старого конфига Caddy: $bak" ;;
+           [ "$d" != off ] && echo "Сертификат HTTPS получается автоматически — первая загрузка может занять до минуты." ;;
   doctor)
     echo "== Контейнеры"; dc ps -a --format "table {{.Service}}\t{{.Status}}"
     echo; echo "== Кто слушает порты 80/443/8080"; ss -tlnp 2>/dev/null | grep -E ':(80|443|8080|8443) ' || echo "никто"
