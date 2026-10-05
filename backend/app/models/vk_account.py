@@ -17,6 +17,10 @@ class VKAccount(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(255))
     vk_user_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
     access_token: Mapped[str] = mapped_column(EncryptedText)
+    # VK ID: long-lived refresh token (encrypted) + device id — the panel renews access tokens itself
+    refresh_token: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
+    device_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default=AccountStatus.NEW.value, index=True)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)

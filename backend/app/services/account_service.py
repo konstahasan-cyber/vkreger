@@ -37,7 +37,7 @@ def create_account(db: Session, *, name: str, access_token: str, proxy_id: int |
     return account
 
 
-def check_account(db: Session, account: VKAccount, *, refresh_groups: bool = True) -> VKAccount:
+def check_account(db: Session, account: VKAccount, *, refresh_groups: bool = True, _retry: bool = True) -> VKAccount:
     """Verify the token via users.get and refresh cached data. Never raises for VK errors."""
     account.last_checked_at = utcnow()
     try:
@@ -74,6 +74,8 @@ def check_account(db: Session, account: VKAccount, *, refresh_groups: bool = Tru
         account.status = AccountStatus.ACTIVE.value
         account.last_error = None
     except VKAPIError as exc:
+        if exc.is_auth and _retry and account.refresh_token and refresh_vkid_token(db, account):
+            return check_account(db, account, refresh_groups=refresh_groups, _retry=False)
         account.status = AccountStatus.INVALID.value if exc.is_auth else AccountStatus.ERROR.value
         account.last_error = describe_vk_error(exc)
         syslog(db, LogLevel.WARNING, "vk_account", f"Account #{account.id} check failed: {account.last_error}",
@@ -116,3 +118,32 @@ def usable_accounts(db: Session) -> list[VKAccount]:
     from sqlalchemy import select
 
     return list(db.execute(select(VKAccount).where(VKAccount.status == AccountStatus.ACTIVE.value)).scalars())
+
+
+def refresh_vkid_token(db: Session, account: VKAccount) -> bool:
+    """Renew the access token with the VK ID refresh token. Returns True on success."""
+    from datetime import timedelta
+
+    from app.core.exceptions import AppError
+    from app.vk import factory, oauth
+
+    app = oauth.get_app(db)
+    if not account.refresh_token or not account.device_id or not app:
+        return False
+    try:
+        proxy_url = factory.proxy_url_for_account(account)
+        data = oauth.refresh_token(app, account.refresh_token, account.device_id, proxy_url=proxy_url,
+                                   transport=factory._transport_override)
+    except (AppError, ProxyUnavailableError) as exc:
+        account.last_error = f"Не удалось продлить токен VK ID: {getattr(exc, 'message', exc)} — нажмите «Войти заново»"
+        syslog(db, LogLevel.WARNING, "vk_account", f"Account #{account.id}: {account.last_error}")
+        db.flush()
+        return False
+    account.access_token = data["access_token"]
+    account.refresh_token = data.get("refresh_token") or account.refresh_token
+    expires_in = int(data.get("expires_in") or 0)
+    account.token_expires_at = utcnow() + timedelta(seconds=expires_in) if expires_in else None
+    account.info = {**(account.info or {}),
+                    "token_expires_at": account.token_expires_at.isoformat() if account.token_expires_at else None}
+    db.flush()
+    return True

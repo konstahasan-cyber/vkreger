@@ -34,6 +34,7 @@ celery_app.conf.update(
         "dispatch-due-posts": {"task": "app.workers.tasks.publishing.dispatch_due_posts", "schedule": 60.0},
         "recover-stuck-posts": {"task": "app.workers.tasks.publishing.recover_stuck_posts", "schedule": 300.0},
         "check-proxies": {"task": "app.workers.tasks.maintenance.check_all_proxies", "schedule": 15 * 60.0},
+        "refresh-vk-tokens": {"task": "app.workers.tasks.maintenance.refresh_vk_tokens", "schedule": 600.0},
         "check-accounts": {"task": "app.workers.tasks.maintenance.check_all_accounts", "schedule": crontab(minute=7)},
         "collect-analytics": {"task": "app.workers.tasks.maintenance.collect_analytics", "schedule": crontab(minute=20, hour="*/3")},
         "autopilot-fill-queues": {"task": "app.workers.tasks.ai_jobs.autopilot_fill_queues", "schedule": crontab(minute=40)},

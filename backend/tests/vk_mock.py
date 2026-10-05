@@ -26,6 +26,7 @@ class FakeVK:
         self.pinned: dict[int, int] = {}
         self.uploads = 0
         self.oauth_requests: list[dict] = []
+        self.refreshes = 0
 
     def fail(self, method: str, code: int, msg: str = "error", times: int = 1) -> None:
         self.fail_next.setdefault(method, []).extend([{"error_code": code, "error_msg": msg}] * times)
@@ -46,6 +47,21 @@ class FakeVK:
             if q.get("code") != "good-code" or q.get("client_secret") != "app-secret":
                 return httpx.Response(200, json={"error": "invalid_grant", "error_description": "Code is invalid or expired."})
             return httpx.Response(200, json={"access_token": VALID_USER_TOKEN, "expires_in": 86400, "user_id": 1})
+        if request.url.host == "id.vk.com" and request.url.path == "/oauth2/auth":
+            from urllib.parse import parse_qs as _pq
+
+            form = {k: v[0] for k, v in _pq(request.content.decode()).items()}
+            self.oauth_requests.append(form)
+            if form.get("grant_type") == "authorization_code":
+                if form.get("code") != "good-code" or not form.get("code_verifier") or not form.get("device_id"):
+                    return httpx.Response(200, json={"error": "invalid_grant", "error_description": "bad code"})
+                return httpx.Response(200, json={"access_token": VALID_USER_TOKEN, "refresh_token": "rt-1",
+                                                 "expires_in": 3600, "user_id": 1})
+            if form.get("grant_type") == "refresh_token" and form.get("refresh_token", "").startswith("rt-"):
+                self.refreshes += 1
+                return httpx.Response(200, json={"access_token": VALID_USER_TOKEN, "refresh_token": f"rt-{self.refreshes + 1}",
+                                                 "expires_in": 3600})
+            return httpx.Response(200, json={"error": "invalid_grant"})
         if request.url.host == "lp.vk.test":
             return httpx.Response(200, json={"ts": "2", "updates": []})
         method = request.url.path.rsplit("/", 1)[-1]

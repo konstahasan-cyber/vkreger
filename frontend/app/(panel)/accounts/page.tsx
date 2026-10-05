@@ -30,34 +30,54 @@ function TokenGuide() {
   );
 }
 
-interface OAuthConfig { configured: boolean; app_id: number | null; offline: boolean; redirect_uri: string }
+interface OAuthConfig { configured: boolean; app_id: number | null; flow: string; has_secret: boolean; offline: boolean; redirect_uri: string; https: boolean }
 
 function OAuthSetup({ config, onSaved }: { config: OAuthConfig; onSaved: () => void }) {
   const action = useAction();
   const [appId, setAppId] = useState(config.app_id ? String(config.app_id) : "");
   const [secret, setSecret] = useState("");
+  const [flow, setFlow] = useState(config.flow || "vkid");
   const [open, setOpen] = useState(!config.configured);
   const host = config.redirect_uri.replace(/^https?:\/\//, "").split("/")[0].split(":")[0];
   if (!open) return <button className="small ghost" onClick={() => setOpen(true)}>⚙️ Настройки входа через VK</button>;
+  const copy = (
+    <div className="row" style={{ margin: "6px 0" }}><code style={{ background: "var(--panel-2)", padding: "6px 10px", borderRadius: 8 }}>{config.redirect_uri}</code>
+      <button className="small" onClick={() => navigator.clipboard?.writeText(config.redirect_uri)}>📋 Скопировать</button></div>
+  );
   return (
     <div className="card step-card">
       <h2>🔐 Настройка входа через VK (один раз)</h2>
-      <p className="muted">Токен будет получать сам сервер — так VK не блокирует его из-за другого IP, и ничего не нужно копировать из адресной строки.</p>
-      <ol style={{ paddingLeft: 18 }}>
-        <li>Откройте своё приложение на <a href="https://dev.vk.com/ru/admin/apps-list" target="_blank" rel="noreferrer">dev.vk.com</a> → «Настройки». Найдите поле <b>«Доверенный redirect URL»</b> (или «Redirect URI») и вставьте:
-          <div className="row" style={{ margin: "6px 0" }}><code style={{ background: "var(--panel-2)", padding: "6px 10px", borderRadius: 8 }}>{config.redirect_uri}</code>
-            <button className="small" onClick={() => navigator.clipboard?.writeText(config.redirect_uri)}>📋 Скопировать</button></div>
-          Если есть поле <b>«Базовый домен»</b> — впишите <code>{host}</code>. Сохраните настройки в VK.</li>
-        <li>Там же: «Разработка» → «Ключи доступа» → <b>«Защищённый ключ»</b> → «Показать». Скопируйте его сюда (он хранится зашифрованным):</li>
-      </ol>
+      <p className="muted">Токен получает сам сервер — VK не блокирует его из-за другого IP, и ничего не нужно копировать из адресной строки.</p>
+      <div className="choices">
+        <button type="button" className={`choice ${flow === "vkid" ? "active" : ""}`} onClick={() => setFlow("vkid")}>
+          <b>VK ID (рекомендуется)</b><span className="small muted">Токен продлевается автоматически. Нужен адрес панели с https://</span>
+        </button>
+        <button type="button" className={`choice ${flow === "classic" ? "active" : ""}`} onClick={() => setFlow("classic")}>
+          <b>Классическое приложение VK</b><span className="small muted">Нужен «Защищённый ключ». Токен без автопродления.</span>
+        </button>
+      </div>
+      {flow === "vkid" && !config.https && <Hint kind="warn">Сейчас панель открыта по http — VK ID требует https. Сначала подключите домен (команда на сервере <code>vk hostdomain …</code>), затем вернитесь сюда.</Hint>}
+      {flow === "vkid" ? (
+        <ol style={{ paddingLeft: 18 }}>
+          <li>Откройте <a href="https://id.vk.com/about/business/go" target="_blank" rel="noreferrer">кабинет VK ID для бизнеса</a> и создайте приложение для <b>Web</b> (сайта).</li>
+          <li>В настройках приложения укажите <b>базовый домен</b> <code>{host}</code> и <b>доверенный Redirect URL</b>:{copy}</li>
+          <li>Включите доступы: стена, сообщества, фотографии, статистика (если кабинет их предлагает).</li>
+          <li>Скопируйте <b>ID приложения</b> сюда.</li>
+        </ol>
+      ) : (
+        <ol style={{ paddingLeft: 18 }}>
+          <li>В настройках приложения на <a href="https://dev.vk.com/ru/admin/apps-list" target="_blank" rel="noreferrer">dev.vk.com</a> найдите <b>«Доверенный redirect URL»</b> и вставьте:{copy}</li>
+          <li>Там же: «Ключи доступа» → <b>«Защищённый ключ»</b> → «Показать» и скопируйте сюда.</li>
+        </ol>
+      )}
       <Alerts error={action.error} />
       <div className="form-grid">
         <Field label="ID приложения"><input value={appId} onChange={(e) => setAppId(e.target.value.replace(/\D/g, ""))} placeholder="54805330" /></Field>
-        <Field label="Защищённый ключ" hint={config.configured ? "Уже сохранён. Заполните, только если хотите заменить." : undefined}><input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} /></Field>
+        {flow === "classic" && <Field label="Защищённый ключ" hint={config.has_secret ? "Уже сохранён. Заполните, только если хотите заменить." : undefined}><input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} /></Field>}
       </div>
       <div className="row">
-        <button className="primary" disabled={action.busy || !appId || (!config.configured && !secret)} onClick={async () => {
-          const r = await action.run(() => api("/vk/oauth/config", { method: "PUT", json: { app_id: Number(appId), secret: secret || null, offline: false } }));
+        <button className="primary" disabled={action.busy || !appId || (flow === "classic" && !config.has_secret && !secret)} onClick={async () => {
+          const r = await action.run(() => api("/vk/oauth/config", { method: "PUT", json: { app_id: Number(appId), secret: secret || null, offline: false, flow } }));
           if (r) { setSecret(""); setOpen(false); onSaved(); }
         }}>Сохранить</button>
         {config.configured && <button className="ghost" onClick={() => setOpen(false)}>Свернуть</button>}

@@ -42,3 +42,22 @@ def check_all_accounts() -> dict:
 def collect_analytics() -> dict:
     with session_scope() as db:
         return collect_recent(db)
+
+
+@celery_app.task(name="app.workers.tasks.maintenance.refresh_vk_tokens")
+def refresh_vk_tokens() -> dict:
+    """Renew VK ID access tokens that expire within 30 minutes."""
+    from datetime import timedelta
+
+    from app.db.base import utcnow
+    from app.services.account_service import refresh_vkid_token
+
+    with session_scope() as db:
+        due = list(db.execute(select(VKAccount).where(
+            VKAccount.refresh_token.is_not(None), VKAccount.token_expires_at.is_not(None),
+            VKAccount.token_expires_at < utcnow() + timedelta(minutes=30))).scalars())
+        ok = 0
+        for account in due:
+            ok += refresh_vkid_token(db, account)
+            db.commit()
+        return {"due": len(due), "refreshed": ok}

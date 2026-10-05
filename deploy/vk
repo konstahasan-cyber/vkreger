@@ -23,6 +23,49 @@ case "${1:-help}" in
            url="http://$ip"; [ "$2" = 80 ] || url="http://$ip:$2"
            sed -i '/^PUBLIC_BASE_URL=/d;/^CORS_ORIGINS=/d' .env && printf 'PUBLIC_BASE_URL=%s\nCORS_ORIGINS=%s\n' "$url" "$url" >> .env
            dc up -d --force-recreate caddy backend; echo "Панель теперь здесь: $url" ;;
+  domain)  need_root "$@"
+           d="${2:-}"; [ -n "$d" ] || { echo "Использование: vk domain panel.example.ru  (или vk domain off)"; exit 1; }
+           sed -i '/^SITE_ADDRESS=/d;/^PUBLIC_BASE_URL=/d;/^CORS_ORIGINS=/d;/^HTTP_PORT=/d;/^HTTPS_BIND=/d' .env
+           if [ "$d" = off ]; then
+             ip=$(curl -fsS -4 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+             printf 'SITE_ADDRESS=:80\nPUBLIC_BASE_URL=http://%s:8080\nCORS_ORIGINS=http://%s:8080\nHTTP_PORT=8080\nHTTPS_BIND=127.0.0.1:8443\n' "$ip" "$ip" >> .env
+             url="http://$ip:8080"
+           else
+             busy=$(ss -tlnpH '( sport = :80 or sport = :443 )' 2>/dev/null | grep -v docker-proxy || true)
+             if [ -n "$busy" ]; then
+               echo "Порты 80/443 заняты другой программой:"; echo "$busy"; echo "Освободите его (например: systemctl disable --now caddy) и повторите."; exit 1
+             fi
+             printf 'SITE_ADDRESS=%s\nPUBLIC_BASE_URL=https://%s\nCORS_ORIGINS=https://%s\nHTTP_PORT=80\nHTTPS_BIND=443\n' "$d" "$d" "$d" >> .env
+             url="https://$d"
+           fi
+           dc up -d --force-recreate caddy backend worker beat
+           echo "Панель: $url  (сертификат HTTPS получается автоматически, первая загрузка может занять до минуты)" ;;
+  hostdomain) need_root "$@"
+           # Use an already installed system Caddy (which owns 80/443 for other sites) as the HTTPS front.
+           port=$(grep -m1 '^HTTP_PORT=' .env | cut -d= -f2- || true); port=${port:-80}
+           ip=$(curl -fsS -4 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+           d="${2:-auto}"; [ "$d" = auto ] && d="$(echo "$ip" | tr . -).sslip.io"
+           systemctl is-active --quiet caddy || { echo "Системный Caddy не запущен. Используйте: vk domain $d"; exit 1; }
+           cf=$(systemctl cat caddy 2>/dev/null | grep -m1 '^ExecStart=' | grep -o -- '--config [^ ]*' | awk '{print $2}')
+           cf=${cf:-/etc/caddy/Caddyfile}
+           [ -f "$cf" ] || { echo "Не нашёл конфиг системного Caddy ($cf). Пришлите вывод: systemctl cat caddy"; exit 1; }
+           bak="$cf.bak-vkreger-$(date +%Y%m%d%H%M%S)"; cp "$cf" "$bak"
+           sed -i '/# vkreger-begin/,/# vkreger-end/d' "$cf"
+           if [ "$d" != off ]; then
+             [ -n "$(tail -c1 "$cf")" ] && echo >> "$cf"
+             printf '# vkreger-begin (managed by: vk hostdomain)\n%s {\n\treverse_proxy 127.0.0.1:%s\n}\n# vkreger-end\n' "$d" "$port" >> "$cf"
+           fi
+           if ! caddy validate --config "$cf" --adapter caddyfile >/dev/null 2>&1; then
+             cp "$bak" "$cf"; echo "Конфиг не прошёл проверку — вернул как было ($bak). Ничего не изменено."; caddy validate --config "$cf" --adapter caddyfile 2>&1 | tail -3; exit 1
+           fi
+           if ! systemctl reload caddy; then cp "$bak" "$cf"; systemctl reload caddy || true; echo "Не удалось перезагрузить Caddy — вернул как было."; exit 1; fi
+           sed -i '/^PUBLIC_BASE_URL=/d;/^CORS_ORIGINS=/d' .env
+           if [ "$d" = off ]; then url="http://$ip:$port"; [ "$port" = 80 ] && url="http://$ip"; else url="https://$d"; fi
+           printf 'PUBLIC_BASE_URL=%s\nCORS_ORIGINS=%s\n' "$url" "$url" >> .env
+           dc up -d --force-recreate backend worker beat >/dev/null
+           echo "Готово. Панель: $url"
+           [ "$d" != off ] && echo "Сертификат HTTPS Caddy получает автоматически — первая загрузка может занять до минуты."
+           echo "Резервная копия старого конфига Caddy: $bak" ;;
   doctor)
     echo "== Контейнеры"; dc ps -a --format "table {{.Service}}\t{{.Status}}"
     echo; echo "== Кто слушает порты 80/443/8080"; ss -tlnp 2>/dev/null | grep -E ':(80|443|8080|8443) ' || echo "никто"
@@ -43,6 +86,8 @@ case "${1:-help}" in
   vk backup    — резервная копия базы и картинок
   vk env       — изменить настройки (.env), например ключ OpenAI
   vk port 8080 — перенести панель на другой порт (если 80 занят)
+  vk hostdomain [D] — HTTPS через уже установленный системный Caddy (по умолчанию бесплатный IP.sslip.io)
+  vk domain D  — включить HTTPS на домене D (например 1-2-3-4.sslip.io); vk domain off — вернуть http по IP
   vk doctor    — диагностика: почему панель не открывается
 HELP
     ;;
