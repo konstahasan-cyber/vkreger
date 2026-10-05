@@ -138,3 +138,51 @@ def test_duplicate_post(client, admin_headers, vk, db):
     assert copy["generation_metadata"]["copied_from"] == original_id
     again = client.post(f"/api/posts/{copy['id']}/publish-now", headers=admin_headers).json()
     assert again["status"] == "published" and again["vk_post_id"] != published["vk_post_id"]
+
+
+def test_generate_with_cadence_and_approve_all(client, admin_headers, vk):
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    project = setup_project_with_community(client, admin_headers, vk)
+    tomorrow = (datetime.now(ZoneInfo("Europe/Moscow")) + timedelta(days=1)).date()
+    job = client.post("/api/posts/generate", json={"project_id": project["id"], "count": 3, "cadence_days": 2,
+                                                   "post_time": "18:30", "start_date": tomorrow.isoformat(),
+                                                   "with_image": False}, headers=admin_headers).json()
+    job = client.get(f"/api/jobs/{job['id']}", headers=admin_headers).json()
+    assert job["status"] == "success", job
+    posts = sorted((client.get(f"/api/posts/{i}", headers=admin_headers).json() for i in job["result"]["posts"]),
+                   key=lambda p: p["scheduled_at"])
+    local = [datetime.fromisoformat(p["scheduled_at"]).astimezone(ZoneInfo("Europe/Moscow")) for p in posts]
+    assert [d.date() for d in local] == [tomorrow + timedelta(days=2 * i) for i in range(3)]
+    assert all((d.hour, d.minute) == (18, 30) for d in local)
+    assert all(p["status"] == "draft" and not p["image_url"] for p in posts)
+
+    extra = client.post("/api/posts", json={"project_id": project["id"], "text": "без времени"}, headers=admin_headers).json()
+    r = client.post("/api/posts/approve-all", json={"project_id": project["id"]}, headers=admin_headers).json()
+    assert r["approved"] == 4 and r["errors"] == []
+    after = [client.get(f"/api/posts/{p['id']}", headers=admin_headers).json() for p in posts]
+    assert [p["scheduled_at"] for p in after] == [p["scheduled_at"] for p in posts]  # planned times kept
+    assert all(p["status"] == "scheduled" for p in after)
+    extra = client.get(f"/api/posts/{extra['id']}", headers=admin_headers).json()
+    assert extra["status"] == "scheduled" and extra["scheduled_at"] not in {p["scheduled_at"] for p in after}
+
+
+def test_export_posts_in_order(client, admin_headers, vk):
+    import csv
+    import io
+
+    project = setup_project_with_community(client, admin_headers, vk)
+    ids = []
+    for text in ("Первый пост", "Второй пост"):
+        p = client.post("/api/posts", json={"project_id": project["id"], "text": text}, headers=admin_headers).json()
+        client.post(f"/api/posts/{p['id']}/publish-now", headers=admin_headers)
+        ids.append(p["id"])
+    r = client.get(f"/api/posts/export?project_id={project['id']}&status=published", headers=admin_headers)
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv")
+    rows = list(csv.reader(io.StringIO(r.content.decode("utf-8-sig")), delimiter=";"))
+    assert rows[0][0] == "№" and [row[6] for row in rows[1:]] == ["Первый пост", "Второй пост"]
+    assert rows[1][7].startswith("https://vk.com/wall-101_")
+    txt = client.get(f"/api/posts/export?project_id={project['id']}&fmt=txt", headers=admin_headers).text
+    assert txt.index("Первый пост") < txt.index("Второй пост")
+    assert client.get("/api/posts/export").status_code == 401

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { api, qs } from "@/lib/api";
+import { api, download, qs } from "@/lib/api";
 import { fmtDate, fmtDay, fmtTime, rubricLabel, toLocalInput } from "@/lib/format";
 import type { Job, Page, Post } from "@/lib/types";
 import { Alerts, Badge, Empty, Field, Hint, JobStatus, Modal, ProjectSelect, useAction, useJob, useLoad, useQueryParam } from "@/components/ui";
@@ -27,9 +27,14 @@ export default function ContentPage() {
   const job = useJob((j) => { reload(); if (j.status === "success") action.setMessage("Посты написаны и добавлены во вкладку «На проверке»."); });
   const [open, setOpen] = useState<Post | null>(null);
   const [showGen, setShowGen] = useState(false);
-  const [gen, setGen] = useState({ count: 1, topic: "", instructions: "", withImage: true });
-  const { data: projectInfo } = useLoad<{ images_enabled: boolean }>(ready && projectId ? `/projects/${projectId}` : null, [projectId]);
-  useEffect(() => { if (projectInfo) setGen((g) => ({ ...g, withImage: projectInfo.images_enabled })); }, [projectInfo]);
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const [gen, setGen] = useState({ count: 1, topic: "", instructions: "", withImage: true, cadence: "", time: "10:00", start: tomorrow });
+  const { data: projectInfo } = useLoad<{ images_enabled: boolean; posting_times: string[] }>(ready && projectId ? `/projects/${projectId}` : null, [projectId]);
+  useEffect(() => { if (projectInfo) setGen((g) => ({ ...g, withImage: projectInfo.images_enabled, time: projectInfo.posting_times?.[0] || "10:00" })); }, [projectInfo]);
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const toggle = (id: number) => setExpanded((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const [showExport, setShowExport] = useState(false);
+  const exportPosts = (fmt: "csv" | "txt") => action.run(() => download(`/posts/export${qs({ project_id: projectId, status, fmt })}`, `posts.${fmt}`)).then(() => setShowExport(false));
 
   useEffect(() => {
     if (postParam) api<Post>(`/posts/${postParam}`).then(setOpen).catch(() => undefined);
@@ -46,13 +51,32 @@ export default function ContentPage() {
         </div>
         <div className="row">
           <ProjectSelect value={projectId} onChange={setProjectId} />
+          <div style={{ position: "relative" }}>
+            <button onClick={() => setShowExport(!showExport)}>⬇️ Экспорт</button>
+            {showExport && (
+              <div className="card" style={{ position: "absolute", right: 0, top: "110%", zIndex: 20, width: 260, padding: 12 }}>
+                <div className="small muted" style={{ marginBottom: 8 }}>Посты текущей вкладки{projectId ? " и проекта" : ""}, в порядке публикации</div>
+                <button style={{ width: "100%", marginBottom: 6 }} onClick={() => exportPosts("csv")}>📊 Таблица Excel (.csv)</button>
+                <button style={{ width: "100%" }} onClick={() => exportPosts("txt")}>📄 Текстом (.txt)</button>
+              </div>
+            )}
+          </div>
           <button className="primary" disabled={!projectId} title={projectId ? "" : "Сначала выберите проект"} onClick={() => setShowGen(true)}>✨ Написать посты</button>
         </div>
       </div>
       <div className="tabs">{FILTERS.map(([key, label]) => <button key={key} className={status === key ? "active" : ""} onClick={() => setStatus(key)}>{label}</button>)}</div>
       <JobStatus job={job.job} hideSuccess />
       <Alerts error={error || action.error} message={action.message} />
-      {status === "draft" && (data?.items.length ?? 0) > 0 && <Hint>Нажмите <b>«Одобрить»</b> — пост встанет в очередь и выйдет в указанное время. Чтобы поправить текст или картинку — <b>«Редактировать»</b>.</Hint>}
+      {status === "draft" && (data?.items.length ?? 0) > 0 && (
+        <div className="alert info" style={{ alignItems: "center" }}>
+          💡 <div style={{ flex: 1 }}>Нажмите <b>«Одобрить»</b> — пост встанет в очередь и выйдет в указанное время. Чтобы поправить текст или картинку — <b>«Редактировать»</b>.</div>
+          <button className="primary" disabled={action.busy} onClick={async () => {
+            if (!confirm(`Одобрить все посты на проверке (${data?.total})${projectId ? " этого проекта" : " всех проектов"}? Каждый встанет в очередь на своё время.`)) return;
+            const r = await action.run(() => api<{ approved: number; errors: string[] }>("/posts/approve-all", { method: "POST", json: { project_id: projectId ? Number(projectId) : null } }));
+            if (r) { if (r.errors.length) action.setError(`Не одобрены: ${r.errors.join("; ")}`); action.setMessage(`Одобрено постов: ${r.approved}`); reload(); }
+          }}>✓ Одобрить все ({data?.total})</button>
+        </div>
+      )}
 
       {data && data.items.length === 0 ? (
         <div className="card">
@@ -70,7 +94,8 @@ export default function ContentPage() {
               </div>
               <div className="body">
                 <div className="title">{p.title || p.topic}</div>
-                <div className="text">{p.text}</div>
+                <div className="text" style={expanded.has(p.id) ? { maxHeight: "none", WebkitMaskImage: "none", maskImage: "none" } : undefined}>{p.text}</div>
+                {p.text.length > 280 && <button className="small ghost" style={{ padding: "4px 0" }} onClick={() => toggle(p.id)}>{expanded.has(p.id) ? "▲ Свернуть" : "▼ Показать полностью"}</button>}
               </div>
               {p.image_url
                 ? <img className={`img ${p.image_format}`} src={p.image_url} alt="" />
@@ -104,12 +129,33 @@ export default function ContentPage() {
 
       {showGen && (
         <Modal title="Написать посты" onClose={() => setShowGen(false)}>
-          <Field label="Сколько постов"><input type="number" min={1} max={20} value={gen.count} onChange={(e) => setGen({ ...gen, count: Number(e.target.value) })} /></Field>
+          <Field label="Сколько постов"><input type="number" min={1} max={30} value={gen.count} onChange={(e) => setGen({ ...gen, count: Number(e.target.value) })} /></Field>
           <Field label="Тема (необязательно)" hint="Если не указать — AI возьмёт следующие темы из контент-плана."><input value={gen.topic} onChange={(e) => setGen({ ...gen, topic: e.target.value })} placeholder="Например: как выбрать зерно для турки" /></Field>
           <Field label="Пожелания (необязательно)"><input value={gen.instructions} onChange={(e) => setGen({ ...gen, instructions: e.target.value })} placeholder="Например: упомянуть акцию −20% по будням" /></Field>
+          {gen.count > 1 && (
+            <div className="card soft">
+              <Field label="Как часто выкладывать эти посты?">
+                <select value={gen.cadence} onChange={(e) => setGen({ ...gen, cadence: e.target.value })}>
+                  <option value="">По расписанию проекта (время из настроек)</option>
+                  <option value="1">Каждый день</option>
+                  <option value="2">Через день</option>
+                  <option value="3">Раз в 3 дня</option>
+                  <option value="7">Раз в неделю</option>
+                </select>
+              </Field>
+              {gen.cadence && (
+                <div className="form-grid">
+                  <Field label="Во сколько"><input type="time" value={gen.time} onChange={(e) => setGen({ ...gen, time: e.target.value })} /></Field>
+                  <Field label="Начиная с"><input type="date" value={gen.start} onChange={(e) => setGen({ ...gen, start: e.target.value })} /></Field>
+                </div>
+              )}
+              <p className="small muted" style={{ margin: 0 }}>Посты придут черновиками с этими датами — проверьте и нажмите «✓ Одобрить все».</p>
+            </div>
+          )}
           <label className="check" style={{ marginBottom: 14 }}><input type="checkbox" checked={gen.withImage} onChange={(e) => setGen({ ...gen, withImage: e.target.checked })} /> 🖼 Рисовать картинки к этим постам</label>
           <button className="primary big" disabled={job.running} onClick={async () => {
-            const j = await action.run(() => api<Job>("/posts/generate", { method: "POST", json: { project_id: Number(projectId), count: gen.count, topic: gen.topic || null, instructions: gen.instructions || null, with_image: gen.withImage } }));
+            const j = await action.run(() => api<Job>("/posts/generate", { method: "POST", json: { project_id: Number(projectId), count: gen.count, topic: gen.topic || null, instructions: gen.instructions || null, with_image: gen.withImage,
+              cadence_days: gen.count > 1 && gen.cadence ? Number(gen.cadence) : null, post_time: gen.cadence ? gen.time : null, start_date: gen.cadence ? gen.start : null } }));
             if (j) { job.start(j); setShowGen(false); setStatus("draft"); }
           }}>✨ Написать</button>
         </Modal>

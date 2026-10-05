@@ -69,3 +69,19 @@ export function qs(params: Record<string, string | number | boolean | null | und
   const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "");
   return entries.length ? "?" + new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString() : "";
 }
+
+/** Download a file from the API with the auth header and save it in the browser. */
+export async function download(path: string, fallbackName: string): Promise<void> {
+  const token = getToken();
+  const response = await fetch(BASE + path, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!response.ok) throw new ApiError(response.status, `Не удалось скачать файл (HTTP ${response.status})`);
+  const name = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") || "")?.[1] || fallbackName;
+  const url = URL.createObjectURL(await response.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

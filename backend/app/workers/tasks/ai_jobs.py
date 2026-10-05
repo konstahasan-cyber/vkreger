@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from datetime import UTC
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -11,6 +12,7 @@ from app.analytics.analyst_service import run_review
 from app.content.generator import generate_post
 from app.core.exceptions import AppError, CostLimitExceeded
 from app.db.session import SessionLocal, session_scope
+from app.models.content import Post
 from app.models.enums import JobStatus, LogLevel
 from app.models.system import Job
 from app.openai.provider import AIError
@@ -85,7 +87,7 @@ def generate_posts_task(job_id: int) -> dict:
         project = project_service.get_project(db, job.project_id)
         params = job.params
         ids = []
-        for _ in range(max(1, min(int(params.get("count", 1)), 20))):
+        for _ in range(max(1, min(int(params.get("count", 1)), 30))):
             if params.get("topic") is None and project_service_needs_plan(db, project.id):
                 project_service.generate_content_plan(db, project, days=7, force=params.get("force", False))
             post = generate_post(db, project, topic=params.get("topic"), rubric_code=params.get("rubric_code"),
@@ -93,9 +95,32 @@ def generate_posts_task(job_id: int) -> dict:
                                  force=params.get("force", False), with_image=params.get("with_image"))
             ids.append(post.id)
             db.commit()
+        if params.get("cadence_days"):
+            planned = plan_cadence(project, len(ids), int(params["cadence_days"]), params.get("post_time"),
+                                   params.get("start_date"))
+            for post_id, when in zip(ids, planned, strict=True):
+                post = db.get(Post, post_id)
+                post.scheduled_at = when
+            db.commit()
         return {"posts": ids}
 
     return run_job(job_id, fn)
+
+
+def plan_cadence(project, count: int, every_days: int, post_time: str | None, start: str | None) -> list:  # noqa: ANN001
+    """Publication times: one post every ``every_days`` days at ``post_time`` (project timezone)."""
+    from datetime import date, datetime, time, timedelta
+
+    from app.content.slots import tz
+
+    zone = tz(project)
+    hh, mm = (post_time or (project.posting_times or ["10:00"])[0]).split(":")
+    at = time(int(hh), int(mm))
+    day = date.fromisoformat(start) if start else datetime.now(zone).date()
+    first = datetime.combine(day, at, tzinfo=zone)
+    while first <= datetime.now(zone) + timedelta(minutes=5):
+        first += timedelta(days=1)
+    return [(first + timedelta(days=every_days * i)).astimezone(UTC) for i in range(count)]
 
 
 def project_service_needs_plan(db: Session, project_id: int) -> bool:

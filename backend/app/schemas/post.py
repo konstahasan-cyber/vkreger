@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -65,7 +65,12 @@ class PostUpdate(BaseModel):
 
 class GeneratePostsRequest(BaseModel):
     project_id: int
-    count: int = Field(default=1, ge=1, le=20)
+    count: int = Field(default=1, ge=1, le=30)
+    # How to spread the generated posts: None = project's own schedule (free slots),
+    # otherwise one post every N days at post_time, starting from start_date.
+    cadence_days: int | None = Field(default=None, ge=1, le=30)
+    post_time: str | None = Field(default=None, pattern=r"^\d{1,2}:\d{2}$")
+    start_date: date | None = None
     topic: str | None = None
     rubric_code: str | None = None
     angle: str | None = None

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -49,6 +50,67 @@ def list_posts(project_id: int | None = None, status: str | None = None, categor
     rows = db.execute(query.order_by(func.coalesce(Post.scheduled_at, Post.created_at).desc(), Post.id.desc())
                       .limit(min(limit, 200)).offset(offset)).scalars()
     return Page(items=[PostOut.from_model(p) for p in rows], total=total)
+
+
+@router.get("/posts/export")
+def export_posts(project_id: int | None = None, status: str | None = None, fmt: str = "csv",
+                 db: Session = Depends(get_db), _: User = Depends(require(Permission.VIEW))) -> Response:
+    """Download posts in the order they went out (published, then planned): Excel-friendly CSV or plain text."""
+    import csv
+    import io
+    from zoneinfo import ZoneInfo
+
+    from app.models.project import Project
+
+    when = func.coalesce(Post.published_at, Post.scheduled_at, Post.created_at)
+    query = select(Post)
+    if project_id:
+        query = query.where(Post.project_id == project_id)
+    if status:
+        query = query.where(Post.status.in_(status.split(",")))
+    posts = list(db.execute(query.order_by(when.asc(), Post.id)).scalars())
+    projects = {p.id: p for p in db.execute(select(Project)).scalars()}
+    labels = {"draft": "На проверке", "approved": "Одобрен", "scheduled": "В очереди", "publishing": "Публикуется",
+              "published": "Опубликован", "failed": "Ошибка"}
+
+    def local(post: Post) -> str:
+        value = post.published_at or post.scheduled_at
+        if not value:
+            return ""
+        project = projects.get(post.project_id)
+        try:
+            zone = ZoneInfo(project.timezone if project else "Europe/Moscow")
+        except Exception:  # noqa: BLE001
+            zone = ZoneInfo("UTC")
+        return value.astimezone(zone).strftime("%d.%m.%Y %H:%M")
+
+    def link(post: Post) -> str:
+        if post.vk_post_id and post.community:
+            return f"https://vk.com/wall-{post.community.vk_group_id}_{post.vk_post_id}"
+        return ""
+
+    stamp = datetime.now(UTC).strftime("%Y%m%d")
+    if fmt == "txt":
+        blocks = []
+        for i, post in enumerate(posts, 1):
+            head = f"#{i} · {local(post) or 'без даты'} · {labels.get(post.status, post.status)} · {post.category or '-'}"
+            parts = [head, link(post), "", post.text.strip()]
+            blocks.append("\n".join(p for p in parts if p is not None))
+        body = ("\n\n" + "—" * 40 + "\n\n").join(blocks) + "\n"
+        return Response(body.encode("utf-8"), media_type="text/plain; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="posts-{stamp}.txt"'})
+    out = io.StringIO()
+    writer = csv.writer(out, delimiter=";")  # ';' + BOM opens correctly in Russian Excel
+    writer.writerow(["№", "Дата", "Статус", "Проект", "Рубрика", "Заголовок", "Текст", "Ссылка VK", "Просмотры",
+                     "Лайки", "Комментарии", "Репосты"])
+    for i, post in enumerate(posts, 1):
+        a = post.analytics or {}
+        project = projects.get(post.project_id)
+        writer.writerow([i, local(post), labels.get(post.status, post.status), project.name if project else "",
+                         post.category or "", post.title or "", post.text, link(post), a.get("views", ""),
+                         a.get("likes", ""), a.get("comments", ""), a.get("reposts", "")])
+    return Response(("\ufeff" + out.getvalue()).encode("utf-8"), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="posts-{stamp}.csv"'})
 
 
 @router.get("/calendar")
@@ -122,12 +184,44 @@ def generate(body: GeneratePostsRequest, db: Session = Depends(get_db),
     if body.force and not has_permission(user.role, Permission.FORCE_AI_LIMIT):
         raise HTTPException(403, "Превысить лимит расходов на AI может только администратор")
     project_service.get_project(db, body.project_id)
-    job = create_job(db, "generate_posts", project_id=body.project_id, params=body.model_dump(exclude={"project_id"}),
+    job = create_job(db, "generate_posts", project_id=body.project_id, params=body.model_dump(mode="json", exclude={"project_id"}),
                      user_id=user.id)
     db.commit()
     generate_posts_task.delay(job.id)
     db.refresh(job)
     return JobOut.model_validate(job)
+
+
+class ApproveAllRequest(BaseModel):
+    project_id: int | None = None
+
+
+@router.post("/posts/approve-all")
+def approve_all(body: ApproveAllRequest, request: Request, db: Session = Depends(get_db),
+                user: User = Depends(require(Permission.PUBLISH))) -> dict:
+    """Approve every draft: keep its planned time if it is in the future, else take the next free slot."""
+    from app.core.exceptions import AppError
+
+    query = select(Post).where(Post.status == PostStatus.DRAFT.value)
+    if body.project_id:
+        query = query.where(Post.project_id == body.project_id)
+    drafts = list(db.execute(query.order_by(Post.scheduled_at.asc().nulls_last(), Post.id)).scalars())
+    now = datetime.now(UTC)
+    approved, errors = 0, []
+    for post in drafts:
+        try:
+            keep = post.scheduled_at if post.scheduled_at and post.scheduled_at > now else None
+            if keep is None:
+                post.scheduled_at = None  # free its stale slot before picking a new one
+                db.flush()
+            schedule_post(db, post, keep)
+            approved += 1
+        except AppError as exc:
+            errors.append(f"#{post.id}: {exc.message}")
+    audit(db, user.id, "post.approve_all", "post", None, {"approved": approved, "project_id": body.project_id},
+          client_ip(request))
+    db.commit()
+    return {"approved": approved, "errors": errors}
 
 
 @router.post("/posts/{post_id}/duplicate", response_model=PostOut, status_code=201)
