@@ -44,7 +44,7 @@ def test_retry_then_success_without_duplicates(db, vk, project):
 
 def test_fatal_error_fails_immediately(db, vk, project):
     post = _due_post(db, project)
-    vk.fail("wall.post", 214, "Access to adding post denied")
+    vk.fail("wall.post", 214, "Access to adding post denied", times=2)  # community key, then account
     dispatch_due_posts()
     db.refresh(post)
     assert post.status == "failed" and post.attempts == 1
@@ -108,7 +108,7 @@ def test_recover_stuck_post_found_on_wall(db, vk, project):
 
 def test_failed_post_retry_endpoint(client, admin_headers, db, vk, project):
     post = _due_post(db, project)
-    vk.fail("wall.post", 214)
+    vk.fail("wall.post", 214, times=2)
     dispatch_due_posts()
     r = client.post(f"/api/posts/{post.id}/retry", headers=admin_headers).json()
     assert r["status"] == "scheduled" and r["attempts"] == 0

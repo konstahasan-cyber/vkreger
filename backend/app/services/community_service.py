@@ -15,8 +15,10 @@ from app.models.enums import EventMode, LogLevel, PostStatus, ProjectStatus
 from app.models.project import Project
 from app.models.vk_account import VKAccount
 from app.services.audit import syslog
+from app.vk import factory
+from app.vk.client import VKClient
 from app.vk.errors import VKAPIError, VKError
-from app.vk.factory import client_for_account, client_for_community
+from app.vk.factory import client_for_account, client_for_community, run_for_community
 
 VK_TITLE_MAX = 48
 VK_STATUS_MAX = 139
@@ -35,7 +37,7 @@ def _require_account(project: Project) -> VKAccount:
     return project.vk_account
 
 
-def _upsert_from_vk(db: Session, group: dict, account: VKAccount) -> Community:
+def _upsert_from_vk(db: Session, group: dict, account: VKAccount | None) -> Community:
     community = db.execute(select(Community).where(Community.vk_group_id == int(group["id"]))).scalar_one_or_none()
     if community is None:
         community = Community(vk_group_id=int(group["id"]), name=group.get("name") or f"club{group['id']}",
@@ -47,8 +49,9 @@ def _upsert_from_vk(db: Session, group: dict, account: VKAccount) -> Community:
     community.photo_url = group.get("photo_200") or group.get("photo_100") or community.photo_url
     community.members_count = group.get("members_count", community.members_count)
     community.is_admin = bool(group.get("is_admin", 1))
-    community.account_id = account.id
-    community.account = account
+    if account is not None:
+        community.account_id = account.id
+        community.account = account
     community.last_synced_at = utcnow()
     db.flush()
     return community
@@ -63,13 +66,31 @@ def sync_account_communities(db: Session, account: VKAccount) -> list[Community]
 
 
 def connect_community(db: Session, project: Project, vk_group_id: int, community_token: str | None = None) -> Community:
-    account = _require_account(project)
+    """Connect an existing community with the project's account and/or a community access key.
+
+    A community key alone is enough: it is created in the community settings, needs no VK app,
+    does not expire and is not bound to an IP address.
+    """
+    account = project.vk_account
+    community_token = (community_token or "").strip() or None
+    if account is None and community_token is None:
+        existing = db.execute(select(Community).where(Community.vk_group_id == vk_group_id)).scalar_one_or_none()
+        community_token = existing.community_token if existing else None
+    if account is None and community_token is None:
+        raise ValidationAppError("Укажите ключ доступа сообщества (или выберите аккаунт VK в настройках проекта)")
     if project.community and project.community.vk_group_id != vk_group_id:
         raise ConflictError("У проекта уже есть другое сообщество — сначала отключите его")
-    with client_for_account(account) as client:
-        group = client.get_group(vk_group_id)
-    if not group.get("is_admin"):
-        raise ValidationAppError("Выбранный аккаунт не является администратором этого сообщества")
+    if community_token:
+        with VKClient(community_token, transport=factory._transport_override) as client:
+            group = client.get_group(vk_group_id)
+        if int(group.get("id", 0)) != int(vk_group_id):
+            raise ValidationAppError("Этот ключ доступа принадлежит другому сообществу")
+        group["is_admin"] = 1
+    else:
+        with client_for_account(account) as client:
+            group = client.get_group(vk_group_id)
+        if not group.get("is_admin"):
+            raise ValidationAppError("Выбранный аккаунт не является администратором этого сообщества")
     community = _upsert_from_vk(db, group, account)
     if community.project_id and community.project_id != project.id:
         raise ConflictError(f"Это сообщество уже подключено к проекту #{community.project_id}")
@@ -109,28 +130,27 @@ def apply_settings(db: Session, community: Community, *, description: str | None
                    website: str | None = None, title: str | None = None) -> dict:
     """Fill community settings (groups.edit + status.set). Returns per-step results."""
     results: dict[str, str] = {}
-    with client_for_community(community, prefer_community_token=False) as client:
-        fields = {}
-        if title:
-            fields["title"] = title.strip()[:VK_TITLE_MAX]
-        if description is not None:
-            fields["description"] = description
-        if website:
-            fields["website"] = website
-        if fields:
-            try:
-                client.edit_group(community.vk_group_id, **fields)
-                results["groups.edit"] = "ok"
-                community.description = description if description is not None else community.description
-                community.name = fields.get("title", community.name)
-            except VKAPIError as exc:
-                results["groups.edit"] = f"error {exc.code}: {exc.message}"
-        if status:
-            try:
-                client.set_status(community.vk_group_id, status.strip()[:VK_STATUS_MAX])
-                results["status.set"] = "ok"
-            except VKAPIError as exc:
-                results["status.set"] = f"error {exc.code}: {exc.message}"
+    fields = {}
+    if title:
+        fields["title"] = title.strip()[:VK_TITLE_MAX]
+    if description is not None:
+        fields["description"] = description
+    if website:
+        fields["website"] = website
+    if fields:
+        try:
+            run_for_community(community, lambda c: c.edit_group(community.vk_group_id, **fields))
+            results["groups.edit"] = "ok"
+            community.description = description if description is not None else community.description
+            community.name = fields.get("title", community.name)
+        except VKAPIError as exc:
+            results["groups.edit"] = f"error {exc.code}: {exc.message}"
+    if status:
+        try:
+            run_for_community(community, lambda c: c.set_status(community.vk_group_id, status.strip()[:VK_STATUS_MAX]))
+            results["status.set"] = "ok"
+        except VKAPIError as exc:
+            results["status.set"] = f"error {exc.code}: {exc.message}"
     db.flush()
     return results
 
@@ -151,8 +171,7 @@ def create_pinned_post(db: Session, project: Project, *, title: str, text: str) 
     publish_post_now(db, post)
     if post.vk_post_id:
         try:
-            with client_for_community(community, prefer_community_token=False) as client:
-                client.wall_pin(community.vk_group_id, post.vk_post_id)
+            run_for_community(community, lambda c: c.wall_pin(community.vk_group_id, post.vk_post_id))
             community.pinned_post_id = post.vk_post_id
         except VKError as exc:
             syslog(db, LogLevel.WARNING, "community", f"wall.pin failed: {exc}", project_id=project.id)

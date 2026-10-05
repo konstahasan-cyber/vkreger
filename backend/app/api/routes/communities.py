@@ -92,12 +92,11 @@ def setup_events(community_id: int, body: EventsSetupRequest, request: Request, 
 
 @router.post("/{community_id}/sync", response_model=CommunityOut)
 def sync(community_id: int, db: Session = Depends(get_db), _: User = Depends(require(Permission.MANAGE_PROJECTS))) -> CommunityOut:
-    from app.vk.factory import client_for_community
+    from app.vk.factory import run_for_community
 
     community = community_service.get_community(db, community_id)
     try:
-        with client_for_community(community, prefer_community_token=False) as client:
-            group = client.get_group(community.vk_group_id)
+        group = run_for_community(community, lambda c: c.get_group(community.vk_group_id))
     except VKError as exc:
         community.last_error = str(exc)
         db.commit()

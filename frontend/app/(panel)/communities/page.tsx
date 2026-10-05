@@ -55,7 +55,7 @@ export default function CommunitiesPage() {
       </div>
       {edit && (
         <Modal title={`Ключ сообщества «${edit.name}»`} onClose={() => setEdit(null)}>
-          <p className="small muted">VK → сообщество → Управление → Работа с API → Ключи доступа → «Создать ключ». Отметьте: сообщения, управление сообществом, фотографии, стена. Ключ хранится зашифрованным.</p>
+          <p className="small muted">VK → сообщество → Управление → Работа с API → Ключи доступа → «Создать ключ». Отметьте все права (управление сообществом, сообщения, фотографии, стена, документы). Ключ хранится зашифрованным. С ним посты и ответы работают без токена аккаунта.</p>
           <Field label="Ключ доступа"><input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="vk1.a…" /></Field>
           <div className="row">
             <button className="primary" disabled={!token} onClick={async () => { await act(() => api(`/communities/${edit.id}`, { method: "PATCH", json: { community_token: token } }), "Ключ сохранён — теперь можно включить Long Poll"); setEdit(null); }}>Сохранить</button>

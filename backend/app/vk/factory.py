@@ -41,3 +41,31 @@ def client_for_community(community, *, prefer_community_token: bool = True) -> V
     if account is None:
         raise ProxyUnavailableError(f"community #{community.id} has no account and no community token")
     return VKClient(account.access_token, proxy_url=proxy_url, transport=_transport_override)
+
+
+# Errors after which a call made with the community key is retried with the admin account's token.
+_FALLBACK_CODES = {5, 7, 15, 27, 28, 203, 214}
+
+
+def run_for_community(community, fn):  # noqa: ANN001, ANN201
+    """Run ``fn(client)`` for a community, preferring its community access key.
+
+    The community key works without a VK app, never expires and is not bound to an IP, so it
+    is the most reliable credential on a server.  If VK refuses a method for community keys
+    and the community has an admin account, the call is repeated with the account's token.
+    """
+    from app.vk.errors import VKAPIError
+
+    account = community.account
+    if community.community_token:
+        try:
+            with client_for_community(community, prefer_community_token=True) as client:
+                return fn(client)
+        except VKAPIError as exc:
+            if account is None or exc.code not in _FALLBACK_CODES:
+                raise
+    if account is None:
+        raise ProxyUnavailableError(
+            f"У сообщества #{community.id} нет ни ключа доступа сообщества, ни аккаунта VK")
+    with client_for_community(community, prefer_community_token=False) as client:
+        return fn(client)

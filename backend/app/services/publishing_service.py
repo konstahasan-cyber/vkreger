@@ -23,7 +23,7 @@ from app.models.content import Post
 from app.models.enums import LogLevel, PostStatus
 from app.services.audit import syslog
 from app.vk.errors import ProxyUnavailableError, VKAPIError, VKError, VKNetworkError
-from app.vk.factory import client_for_community
+from app.vk.factory import run_for_community
 
 logger = logging.getLogger(__name__)
 
@@ -99,11 +99,13 @@ def _do_publish(db: Session, post: Post) -> None:
     community = post.community
     if community is None:
         raise ValidationAppError(f"У поста #{post.id} нет сообщества")
-    with client_for_community(community, prefer_community_token=False) as client:
+    def op(client):  # noqa: ANN001, ANN202
         _upload_image(client, post)
         db.flush()
-        post.vk_post_id = client.wall_post(community.vk_group_id, build_message(post),
-                                           attachments=post.attachments or None, guid=post.guid)
+        return client.wall_post(community.vk_group_id, build_message(post),
+                                attachments=post.attachments or None, guid=post.guid)
+
+    post.vk_post_id = run_for_community(community, op)
 
 
 def publish_claimed(db: Session, post: Post) -> Post:
@@ -166,8 +168,7 @@ def recover_stuck(db: Session) -> list[int]:
         found_id = None
         if post.community is not None:
             try:
-                with client_for_community(post.community, prefer_community_token=False) as client:
-                    wall = client.wall_get(post.community.vk_group_id, count=30)
+                wall = run_for_community(post.community, lambda c, gid=post.community.vk_group_id: c.wall_get(gid, count=30))
                 body = build_message(post).strip()
                 for item in wall:
                     if (item.get("text") or "").strip() == body:

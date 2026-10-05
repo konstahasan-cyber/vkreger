@@ -18,7 +18,7 @@ from app.openai.provider import TokenUsage
 from app.openai.service import AIService
 from app.services.audit import syslog
 from app.vk.errors import VKError, describe_vk_error
-from app.vk.factory import client_for_community
+from app.vk.factory import run_for_community
 
 COVER_SIZE = (1590, 530)  # VK recommends ~3:1 covers; generated 3:2 image is cropped to this ratio
 AVATAR_SIZE = (800, 800)
@@ -126,11 +126,10 @@ def upload_design(db: Session, project: Project, kinds: list[str] | None = None)
             continue
         try:
             content = open(info["path"], "rb").read()
-            with client_for_community(community, prefer_community_token=False) as client:
-                if kind == "avatar":
-                    client.upload_group_avatar(community.vk_group_id, content)
-                else:
-                    client.upload_cover(community.vk_group_id, content, *COVER_SIZE)
+            if kind == "avatar":
+                run_for_community(community, lambda c, data=content: c.upload_group_avatar(community.vk_group_id, data))
+            else:
+                run_for_community(community, lambda c, data=content: c.upload_cover(community.vk_group_id, data, *COVER_SIZE))
             info = {**info, "uploaded_version": info.get("version")}
             _update_brand(project, **{kind: info})
             brand = project.brand

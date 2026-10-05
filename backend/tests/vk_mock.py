@@ -27,6 +27,8 @@ class FakeVK:
         self.uploads = 0
         self.oauth_requests: list[dict] = []
         self.refreshes = 0
+        self.community_forbidden: set[str] = set()
+        self.tokens_used: list[tuple[str, str]] = []
 
     def fail(self, method: str, code: int, msg: str = "error", times: int = 1) -> None:
         self.fail_next.setdefault(method, []).extend([{"error_code": code, "error_msg": msg}] * times)
@@ -67,10 +69,13 @@ class FakeVK:
         method = request.url.path.rsplit("/", 1)[-1]
         params = {k: v[0] for k, v in parse_qs(request.content.decode()).items()}
         self.calls.append((method, params))
+        self.tokens_used.append((method, params.get("access_token", "")))
         assert "access_token" not in str(request.url), "token must not be sent in URL"
         if self.fail_next.get(method):
             return httpx.Response(200, json={"error": self.fail_next[method].pop(0)})
         token = params.get("access_token")
+        if token == COMMUNITY_TOKEN and method in self.community_forbidden:
+            return httpx.Response(200, json={"error": {"error_code": 27, "error_msg": "Group authorization failed: method is unavailable with group auth."}})
         if token not in (VALID_USER_TOKEN, COMMUNITY_TOKEN):
             return httpx.Response(200, json={"error": {"error_code": 5, "error_msg": "User authorization failed"}})
         handler = getattr(self, "m_" + method.replace(".", "_"), None)

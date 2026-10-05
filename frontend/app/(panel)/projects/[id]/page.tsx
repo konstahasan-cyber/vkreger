@@ -49,7 +49,7 @@ export default function ProjectPage() {
           </div>
         )}
       </div>
-      {!project.vk_account_id && <Hint kind="warn">К проекту не привязан аккаунт VK. Выберите его во вкладке «Настройки».</Hint>}
+      {!project.vk_account_id && !project.community_id && <Hint>Аккаунт VK не выбран — это нормально: сообщество можно подключить по <b>ключу доступа сообщества</b> (шаг «Сообщество VK»).</Hint>}
       {account && account.status !== "active" && (
         <Hint kind="warn">Аккаунт VK «{account.name}» не работает ({account.last_error || account.status}). Обновите токен на странице <Link href="/accounts">Аккаунты VK</Link> — иначе посты не будут публиковаться.</Hint>
       )}
@@ -254,7 +254,7 @@ function CommunityStep({ project, account, draft, reload }: {
   const [groups, setGroups] = useState(account?.groups_cache || []);
   useEffect(() => setGroups(account?.groups_cache || []), [account]);
 
-  if (!project.vk_account_id) return <div className="card step-card"><h2>3. Сообщество VK</h2><Hint kind="warn">Сначала выберите аккаунт VK во вкладке «Настройки».</Hint></div>;
+  const noAccount = !project.vk_account_id;
   if (job.running) return <div className="card step-card"><h2>3. Сообщество VK</h2><JobStatus job={job.job} /><p className="small muted">Заполняем описание и статус, публикуем закреплённый пост, составляем контент-план и пишем первые посты…</p></div>;
 
   const pinned = draft.pinned.text ? draft.pinned : null;
@@ -281,15 +281,21 @@ function CommunityStep({ project, account, draft, reload }: {
         <button type="button" className={`choice ${mode === "connect" ? "active" : ""}`} onClick={() => setMode("connect")}>
           <b>🔗 Подключить существующее</b><span className="small muted">Группа уже создана в VK, вы в ней администратор. Работает всегда.</span>
         </button>
-        <button type="button" className={`choice ${mode === "create" ? "active" : ""}`} onClick={() => setMode("create")}>
-          <b>➕ Создать новое автоматически</b><span className="small muted">Требуется токен Standalone-приложения VK, иначе VK вернёт ошибку 15.</span>
+        <button type="button" disabled={noAccount} className={`choice ${mode === "create" ? "active" : ""}`} onClick={() => setMode("create")}>
+          <b>➕ Создать новое автоматически</b><span className="small muted">{noAccount ? "Нужен аккаунт VK (Standalone-приложение)." : "Требуется токен Standalone-приложения VK, иначе VK вернёт ошибку 15."}</span>
         </button>
       </div>
       {mode === "connect" ? (
         <>
-          <Hint>Создайте группу в VK вручную (Сообщества → Создать сообщество), затем нажмите «Обновить список» и выберите её.</Hint>
+          {noAccount ? (
+            <Hint>
+              <b>Как получить ключ сообщества</b> (без приложений и ИНН): откройте группу в VK → <b>Управление</b> → <b>Работа с API</b> → <b>Ключи доступа</b> →
+              «Создать ключ» → отметьте <b>все права</b> (управление сообществом, сообщения, фотографии, стена, документы, истории) → «Создать».
+              ID группы — число из адреса <code>vk.com/club123456</code> (или в «Управление → Основная информация»).
+            </Hint>
+          ) : <Hint>Создайте группу в VK вручную (Сообщества → Создать сообщество), затем нажмите «Обновить список» и выберите её. Можно также указать ключ сообщества — он надёжнее токена аккаунта.</Hint>}
           <div className="form-grid">
-            <Field label="Группа">
+            {!noAccount && <Field label="Группа">
               <div className="row">
                 <select value={groupId} onChange={(e) => setGroupId(e.target.value)} style={{ flex: 1 }}>
                   <option value="">— выберите группу —</option>
@@ -297,10 +303,10 @@ function CommunityStep({ project, account, draft, reload }: {
                 </select>
                 <button type="button" disabled={refreshing} onClick={refreshGroups}>{refreshing ? "…" : "🔄 Обновить список"}</button>
               </div>
-            </Field>
-            <Field label="Или ID группы" hint="Число из адреса vk.com/club123456"><input value={groupId} onChange={(e) => setGroupId(e.target.value.replace(/\D/g, ""))} /></Field>
+            </Field>}
+            <Field label={noAccount ? "ID группы" : "Или ID группы"} hint="Число из адреса vk.com/club123456"><input value={groupId} onChange={(e) => setGroupId(e.target.value.replace(/\D/g, ""))} /></Field>
           </div>
-          <Field label="Ключ доступа сообщества (необязательно)" hint="Нужен, чтобы отвечать на сообщения. Можно добавить позже на странице «Сообщества».">
+          <Field label={noAccount ? "Ключ доступа сообщества (обязательно)" : "Ключ доступа сообщества (рекомендуется)"} hint="С ним посты, картинки и ответы на сообщения работают без токена аккаунта: ключ не истекает и не зависит от IP.">
             <input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="vk1.a…" />
           </Field>
         </>
@@ -308,7 +314,7 @@ function CommunityStep({ project, account, draft, reload }: {
         <p className="muted">Будет создана публичная страница «{draft.title}».</p>
       )}
       <Hint>После нажатия система сама: заполнит описание и статус, опубликует и закрепит пост, составит контент-план на неделю и напишет первые 3 поста (они придут как черновики — вы их проверите).</Hint>
-      <button className="primary big" disabled={action.busy || (mode === "connect" && !groupId)} onClick={submit}>
+      <button className="primary big" disabled={action.busy || (mode === "connect" && (!groupId || (noAccount && !token)))} onClick={submit}>
         {mode === "create" ? "🚀 Создать сообщество и запустить" : "🚀 Подключить и запустить"}
       </button>
     </div>
