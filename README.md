@@ -48,6 +48,24 @@ docker compose up -d --build
 Без ключа OpenAI можно попробовать систему с `AI_PROVIDER=fake` и `IMAGE_PROVIDER=fake`:
 офлайн-провайдер возвращает детерминированные ответы, и весь пайплайн работает.
 
+## Установка на сервер (Ubuntu 22.04 / 24.04)
+
+Одна команда на чистом сервере (под root или через sudo):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/konstahasan-cyber/vkreger/claude/clever-wozniak-kwdwzl/deploy/install.sh | sudo bash
+```
+
+Скрипт ставит Docker, скачивает код в `/opt/vkreger`, генерирует ключи и пароли, спрашивает email и
+пароль для входа, ключ OpenAI и домен. Затем поднимает панель за Caddy: с доменом — с автоматическим
+HTTPS (Let's Encrypt), без домена — по `http://IP-сервера`. Панель сама стартует после перезагрузки сервера.
+
+* Обновление: `sudo bash /opt/vkreger/deploy/update.sh` (перед обновлением делается резервная копия)
+* Резервная копия базы и картинок: `sudo bash /opt/vkreger/deploy/backup.sh` → `/opt/vkreger/backups`
+* Логи: `cd /opt/vkreger && docker compose logs --tail 100 backend worker`
+
+Сохраните копию `/opt/vkreger/.env`: в нём ключ шифрования токенов.
+
 ## Настройка VK
 
 1. **Токен аккаунта.** Создайте своё приложение VK (VK ID) и получите user access token с правами

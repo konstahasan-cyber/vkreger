@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Обновление VKreger до свежей версии кода. Данные и .env сохраняются.
+set -euo pipefail
+DIR="${VKREGER_DIR:-/opt/vkreger}"
+BRANCH="${VKREGER_BRANCH:-$(git -C "$DIR" rev-parse --abbrev-ref HEAD)}"
+cd "$DIR"
+bash deploy/backup.sh || echo "(резервную копию сделать не удалось — продолжаю)"
+git fetch -q origin "$BRANCH"
+git checkout -q -B "$BRANCH" "origin/$BRANCH"
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --remove-orphans
+docker image prune -f >/dev/null
+echo "Готово: VKreger обновлён."
