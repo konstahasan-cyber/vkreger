@@ -39,3 +39,32 @@ def test_falls_back_to_account_when_key_is_refused(client, admin_headers, vk):
     assert r.json() == {"status.set": "ok"}
     used = [t for m, t in vk.tokens_used if m == "status.set"]
     assert used == [COMMUNITY_TOKEN, VALID_USER_TOKEN]
+
+
+def test_image_skipped_when_key_cannot_upload_and_no_account(client, admin_headers, vk, db):
+    import uuid
+    from datetime import timedelta
+
+    from app.db.base import utcnow
+    from app.models.content import Post
+    from app.workers.tasks.publishing import dispatch_due_posts
+
+    vk.community_forbidden = {"photos.getWallUploadServer"}
+    project = create_project(client, admin_headers, None)
+    r = client.post(f"/api/projects/{project['id']}/community/connect",
+                    json={"vk_group_id": 101, "community_token": COMMUNITY_TOKEN}, headers=admin_headers)
+    community_id = r.json()["community"]["id"]
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as img:
+        img.write(b"png")
+    post = Post(project_id=project["id"], community_id=community_id, text="Текст", status="scheduled",
+                scheduled_at=utcnow() - timedelta(minutes=1), guid=uuid.uuid4().hex, attachments=[], hashtags=[],
+                analytics={}, generation_metadata={}, image_path=img.name)
+    db.add(post)
+    db.commit()
+    dispatch_due_posts()
+    db.refresh(post)
+    assert post.status == "published"
+    assert "картинку" in post.generation_metadata["image_skipped"]
+    assert post.attachments == []

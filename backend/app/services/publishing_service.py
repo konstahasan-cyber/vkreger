@@ -100,7 +100,19 @@ def _do_publish(db: Session, post: Post) -> None:
     if community is None:
         raise ValidationAppError(f"У поста #{post.id} нет сообщества")
     def op(client):  # noqa: ANN001, ANN202
-        _upload_image(client, post)
+        try:
+            _upload_image(client, post)
+        except VKAPIError as exc:
+            # Community keys can't upload wall photos (error 27). Without an account to fall back
+            # to, publish the text instead of failing the whole post.
+            if community.account is not None or exc.code not in (7, 15, 27):
+                raise
+            meta = dict(post.generation_metadata or {})
+            meta["image_skipped"] = f"VK не дал загрузить картинку ключом сообщества (ошибка {exc.code})"
+            post.generation_metadata = meta
+            syslog(db, LogLevel.WARNING, "publishing",
+                   f"Post #{post.id}: image skipped — community key can't upload photos (VK error {exc.code}). "
+                   "Add a VK account to publish images.", project_id=post.project_id)
         db.flush()
         return client.wall_post(community.vk_group_id, build_message(post),
                                 attachments=post.attachments or None, guid=post.guid)
