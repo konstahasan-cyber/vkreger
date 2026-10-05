@@ -107,7 +107,7 @@ function Launch({ project, account, reload }: { project: ProjectDetail; account:
       {hasProposal && !connected && designOk && draft && <CommunityStep project={project} account={account} draft={draft} reload={reload} />}
       {connected && <DoneLine title={`Сообщество подключено: «${project.community_name}»`} detail="Описание, статус и закреплённый пост заполняются автоматически при подключении." />}
       {connected && <div className="card step-card"><DesignAssets project={project} reload={reload} /></div>}
-      {connected && <PostsStep project={project} />}
+      {connected && <PostsStep project={project} reloadProject={reload} />}
       {connected && <AutopilotStep project={project} reload={reload} />}
     </>
   );
@@ -321,7 +321,7 @@ function CommunityStep({ project, account, draft, reload }: {
   );
 }
 
-function PostsStep({ project }: { project: ProjectDetail }) {
+function PostsStep({ project, reloadProject }: { project: ProjectDetail; reloadProject: () => void }) {
   const drafts = useLoad<Page<unknown>>(`/posts?project_id=${project.id}&status=draft&limit=1`);
   const queued = useLoad<Page<unknown>>(`/posts?project_id=${project.id}&status=scheduled&limit=1`);
   const published = useLoad<Page<unknown>>(`/posts?project_id=${project.id}&status=published&limit=1`);
@@ -345,11 +345,18 @@ function PostsStep({ project }: { project: ProjectDetail }) {
         <div className="stat"><div className="label">⏰ В очереди на публикацию</div><div className="value">{queued.data?.total ?? 0}</div></div>
         <div className="stat"><div className="label">✅ Опубликовано</div><div className="value">{published.data?.total ?? 0}</div></div>
       </div>
-      <Hint>
-        {project.images_enabled
-          ? <>Картинки <b>включены</b>: к каждому посту AI рисует изображение ({project.image_format === "vertical" ? "вертикальное" : project.image_format === "horizontal" ? "горизонтальное" : "квадратное"}). Его видно в карточке поста.</>
-          : <>Картинки <b>выключены</b> — посты публикуются только текстом. Включить можно во вкладке «Настройки».</>}
-      </Hint>
+      <div className="alert info" style={{ alignItems: "center" }}>
+        🖼 <div style={{ flex: 1 }}>
+          {project.images_enabled
+            ? <>Картинки <b>включены</b>: к каждому новому посту AI рисует изображение ({project.image_format === "vertical" ? "вертикальное" : project.image_format === "horizontal" ? "горизонтальное" : "квадратное"}).</>
+            : <>Картинки <b>выключены</b> — новые посты пишутся только текстом (дешевле и быстрее).</>}
+        </div>
+        <button className="small" disabled={action.busy} onClick={async () => {
+          await action.run(() => api(`/projects/${project.id}`, { method: "PATCH", json: { images_enabled: !project.images_enabled } }),
+            project.images_enabled ? "Картинки выключены" : "Картинки включены");
+          reloadProject();
+        }}>{project.images_enabled ? "Выключить картинки" : "Включить картинки"}</button>
+      </div>
       <div className="row">
         <Link href={`/content?project_id=${project.id}&status=draft`}><button className="primary big">{nDrafts ? `👀 Проверить и одобрить посты (${nDrafts})` : "📝 Открыть посты"}</button></Link>
         <button disabled={action.busy || job.running} onClick={async () => {

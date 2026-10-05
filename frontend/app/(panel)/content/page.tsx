@@ -27,7 +27,9 @@ export default function ContentPage() {
   const job = useJob((j) => { reload(); if (j.status === "success") action.setMessage("Посты написаны и добавлены во вкладку «На проверке»."); });
   const [open, setOpen] = useState<Post | null>(null);
   const [showGen, setShowGen] = useState(false);
-  const [gen, setGen] = useState({ count: 1, topic: "", instructions: "" });
+  const [gen, setGen] = useState({ count: 1, topic: "", instructions: "", withImage: true });
+  const { data: projectInfo } = useLoad<{ images_enabled: boolean }>(ready && projectId ? `/projects/${projectId}` : null, [projectId]);
+  useEffect(() => { if (projectInfo) setGen((g) => ({ ...g, withImage: projectInfo.images_enabled })); }, [projectInfo]);
 
   useEffect(() => {
     if (postParam) api<Post>(`/posts/${postParam}`).then(setOpen).catch(() => undefined);
@@ -85,6 +87,10 @@ export default function ContentPage() {
               <div className="foot">
                 {["draft", "approved", "failed"].includes(p.status) && <button className="small primary" onClick={() => act(`/posts/${p.id}/approve`, "Одобрено: пост встал в очередь")}>✓ Одобрить</button>}
                 {p.status !== "published" && p.status !== "publishing" && <button className="small" onClick={() => setOpen(p)}>✏️ Редактировать</button>}
+                <button className="small" title="Создать такой же пост черновиком" onClick={async () => {
+                  const c = await action.run(() => api<Post>(`/posts/${p.id}/duplicate`, { method: "POST" }));
+                  if (c) { action.setMessage(`Копия создана (пост #${c.id}) — она во вкладке «На проверке»`); if (status === "draft") reload(); else setStatus("draft"); }
+                }}>⧉ Копия</button>
                 {p.status === "published" && <button className="small" onClick={() => setOpen(p)}>👁 Открыть</button>}
                 {p.status === "scheduled" && <button className="small" onClick={() => act(`/posts/${p.id}/unschedule`, "Снято с очереди — пост снова на проверке")}>Снять с очереди</button>}
                 {["draft", "approved", "scheduled", "failed"].includes(p.status) && <button className="small" onClick={() => confirm("Опубликовать этот пост в VK прямо сейчас?") && act(`/posts/${p.id}/publish-now`, "Опубликовано")}>🚀 Сейчас</button>}
@@ -101,8 +107,9 @@ export default function ContentPage() {
           <Field label="Сколько постов"><input type="number" min={1} max={20} value={gen.count} onChange={(e) => setGen({ ...gen, count: Number(e.target.value) })} /></Field>
           <Field label="Тема (необязательно)" hint="Если не указать — AI возьмёт следующие темы из контент-плана."><input value={gen.topic} onChange={(e) => setGen({ ...gen, topic: e.target.value })} placeholder="Например: как выбрать зерно для турки" /></Field>
           <Field label="Пожелания (необязательно)"><input value={gen.instructions} onChange={(e) => setGen({ ...gen, instructions: e.target.value })} placeholder="Например: упомянуть акцию −20% по будням" /></Field>
+          <label className="check" style={{ marginBottom: 14 }}><input type="checkbox" checked={gen.withImage} onChange={(e) => setGen({ ...gen, withImage: e.target.checked })} /> 🖼 Рисовать картинки к этим постам</label>
           <button className="primary big" disabled={job.running} onClick={async () => {
-            const j = await action.run(() => api<Job>("/posts/generate", { method: "POST", json: { project_id: Number(projectId), count: gen.count, topic: gen.topic || null, instructions: gen.instructions || null } }));
+            const j = await action.run(() => api<Job>("/posts/generate", { method: "POST", json: { project_id: Number(projectId), count: gen.count, topic: gen.topic || null, instructions: gen.instructions || null, with_image: gen.withImage } }));
             if (j) { job.start(j); setShowGen(false); setStatus("draft"); }
           }}>✨ Написать</button>
         </Modal>
@@ -155,6 +162,10 @@ function PostEditor({ post, onClose, onSaved }: { post: Post; onClose: () => voi
         </>
       )}
       {p.published_at && <p className="small muted">Опубликован {fmtDate(p.published_at)}</p>}
+      <button className="small" onClick={async () => {
+        const c = await action.run(() => api<Post>(`/posts/${p.id}/duplicate`, { method: "POST" }), "Копия создана — она во вкладке «На проверке»");
+        if (c) onSaved();
+      }}>⧉ Создать копию поста</button>
       <details style={{ marginTop: 8 }}><summary className="small muted">Технические детали генерации</summary><pre className="json">{JSON.stringify(p.generation_metadata, null, 2)}</pre></details>
     </Modal>
   );

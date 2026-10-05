@@ -130,6 +130,34 @@ def generate(body: GeneratePostsRequest, db: Session = Depends(get_db),
     return JobOut.model_validate(job)
 
 
+@router.post("/posts/{post_id}/duplicate", response_model=PostOut, status_code=201)
+def duplicate(post_id: int, request: Request, db: Session = Depends(get_db),
+              user: User = Depends(require(Permission.MANAGE_CONTENT))) -> PostOut:
+    """Create an identical draft (text, title, category, image) that can be scheduled separately."""
+    import shutil
+    from pathlib import Path
+
+    original = _get(db, post_id)
+    copy = Post(
+        project_id=original.project_id, community_id=original.community_id, title=original.title, text=original.text,
+        category=original.category, topic=original.topic, cta=original.cta, hashtags=list(original.hashtags or []),
+        # uploaded VK photos are re-uploaded for the copy; other attachments (links, etc.) are kept
+        attachments=[a for a in original.attachments or [] if not str(a).startswith("photo")],
+        image_prompt=original.image_prompt, image_format=original.image_format, status=PostStatus.DRAFT.value,
+        guid=uuid.uuid4().hex, analytics={}, is_pinned=False,
+        generation_metadata={"copied_from": original.id, "copied_by": user.id},
+    )
+    if original.image_path and Path(original.image_path).exists():
+        target = Path(original.image_path).with_name(f"{copy.guid}.png")
+        shutil.copyfile(original.image_path, target)
+        copy.image_path = str(target)
+    db.add(copy)
+    db.flush()
+    audit(db, user.id, "post.duplicate", "post", copy.id, {"from": original.id}, client_ip(request))
+    db.commit()
+    return PostOut.from_model(copy)
+
+
 @router.post("/posts/{post_id}/approve", response_model=PostOut)
 def approve(post_id: int, request: Request, db: Session = Depends(get_db),
             user: User = Depends(require(Permission.PUBLISH))) -> PostOut:

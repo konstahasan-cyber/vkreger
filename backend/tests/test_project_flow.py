@@ -120,3 +120,21 @@ def test_connect_requires_admin(client, admin_headers, vk):
     project = create_project(client, admin_headers, account["id"])
     r = client.post(f"/api/projects/{project['id']}/community/connect", json={"vk_group_id": 202}, headers=admin_headers)
     assert r.status_code == 422
+
+
+def test_duplicate_post(client, admin_headers, vk, db):
+    project = setup_project_with_community(client, admin_headers, vk)
+    job = client.post("/api/posts/generate", json={"project_id": project["id"]}, headers=admin_headers).json()
+    original_id = client.get(f"/api/jobs/{job['id']}", headers=admin_headers).json()["result"]["posts"][0]
+    published = client.post(f"/api/posts/{original_id}/publish-now", headers=admin_headers).json()
+    assert published["status"] == "published" and published["attachments"]
+
+    copy = client.post(f"/api/posts/{original_id}/duplicate", headers=admin_headers).json()
+    assert copy["id"] != original_id and copy["status"] == "draft"
+    assert copy["text"] == published["text"] and copy["title"] == published["title"]
+    assert copy["category"] == published["category"]
+    assert copy["image_url"] and copy["image_url"] != published["image_url"]
+    assert copy["attachments"] == [] and copy["vk_post_id"] is None
+    assert copy["generation_metadata"]["copied_from"] == original_id
+    again = client.post(f"/api/posts/{copy['id']}/publish-now", headers=admin_headers).json()
+    assert again["status"] == "published" and again["vk_post_id"] != published["vk_post_id"]
