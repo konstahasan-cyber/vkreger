@@ -11,8 +11,9 @@ if grep -q '^SITE_ADDRESS=:80' .env; then
 fi
 git fetch -q origin "$BRANCH"
 git checkout -q -B "$BRANCH" "origin/$BRANCH"
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --remove-orphans
-docker image prune -f >/dev/null
+# register the 'vk' command before starting containers so it is available even if startup fails
 chmod +x deploy/*.sh deploy/vk
 ln -sf "$DIR/deploy/vk" /usr/local/bin/vk
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --remove-orphans
+docker image prune -f >/dev/null
 echo "Готово: VKreger обновлён."
