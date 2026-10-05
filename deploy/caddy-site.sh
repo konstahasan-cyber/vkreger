@@ -35,8 +35,8 @@ find_target() {
 }
 
 validate() {
-  if [ "$MODE" = docker ]; then docker exec "$CONTAINER" caddy validate --config "$CF_IN" --adapter caddyfile >/dev/null 2>&1
-  else caddy validate --config "$CF" --adapter caddyfile >/dev/null 2>&1; fi
+  if [ "$MODE" = docker ]; then docker exec "$CONTAINER" caddy validate --config "$CF_IN" --adapter caddyfile > /tmp/vkreger-caddy-validate.log 2>&1
+  else caddy validate --config "$CF" --adapter caddyfile > /tmp/vkreger-caddy-validate.log 2>&1; fi
 }
 reload() {
   if [ "$MODE" = docker ]; then docker exec "$CONTAINER" caddy reload --config "$CF_IN" --adapter caddyfile >/dev/null 2>&1
@@ -58,7 +58,11 @@ fi
 cat "$TMP" > "$CF"; rm -f "$TMP"
 
 if ! validate; then
-  cat "$BAK" > "$CF"; echo "Конфиг не прошёл проверку — вернул как было. Ничего не изменено."; exit 1
+  cat "$BAK" > "$CF"
+  echo "Конфиг не прошёл проверку — вернул как было. Ничего не изменено."
+  echo "Ошибка Caddy:"; grep -iE "error|err" /tmp/vkreger-caddy-validate.log | tail -5 || tail -5 /tmp/vkreger-caddy-validate.log
+  if validate; then :; else echo "(Исходный конфиг тоже не проходит проверку — дело не в панели.)"; fi
+  exit 1
 fi
 if ! reload; then
   cat "$BAK" > "$CF"; reload || true; echo "Caddy не принял изменения — вернул как было."; exit 1
