@@ -44,7 +44,7 @@ case "${1:-help}" in
            # Use a Caddy that already owns 80/443 (systemd or another project's container) as the HTTPS front.
            port=$(grep -m1 '^HTTP_PORT=' .env | cut -d= -f2- || true); port=${port:-80}
            ip=$(curl -fsS -4 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
-           d="${2:-auto}"; [ "$d" = auto ] && d="$(echo "$ip" | tr . -).sslip.io"
+           d="${2:-auto}"; [ "$d" = auto ] && d="vk.$(echo "$ip" | tr . -).sslip.io"
            set +e
            if [ "$d" = off ]; then bash deploy/caddy-site.sh remove; else bash deploy/caddy-site.sh add "$d" "$port"; fi
            rc=$?; set -e
@@ -76,7 +76,7 @@ case "${1:-help}" in
   vk backup    — резервная копия базы и картинок
   vk env       — изменить настройки (.env), например ключ OpenAI
   vk port 8080 — перенести панель на другой порт (если 80 занят)
-  vk hostdomain [D] — HTTPS через уже установленный системный Caddy (по умолчанию бесплатный IP.sslip.io)
+  vk hostdomain [D] — HTTPS через уже установленный системный Caddy (по умолчанию бесплатный vk.IP.sslip.io)
   vk domain D  — включить HTTPS на домене D (например 1-2-3-4.sslip.io); vk domain off — вернуть http по IP
   vk doctor    — диагностика: почему панель не открывается
 HELP
