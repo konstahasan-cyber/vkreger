@@ -11,7 +11,9 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
-      - "443:443"
+      # without a domain HTTPS_BIND=127.0.0.1:443 keeps 443 closed from outside, so browsers
+      # trying https:// get "connection refused" and fall back to http:// instead of a TLS error
+      - "${HTTPS_BIND:-443}:443"
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
     volumes:

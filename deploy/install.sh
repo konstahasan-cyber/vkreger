@@ -84,6 +84,7 @@ PY
   set_env POSTGRES_PASSWORD "$PG_PASSWORD"
   set_env OPENAI_API_KEY "$OPENAI_API_KEY"
   set_env SITE_ADDRESS "$SITE_ADDRESS"
+  if [ -n "$DOMAIN" ]; then set_env HTTPS_BIND 443; else set_env HTTPS_BIND 127.0.0.1:443; fi
   chmod 600 .env
   CREATED_ENV=1
 else
