@@ -25,6 +25,7 @@ class FakeVK:
         self.messages: list[dict] = []
         self.pinned: dict[int, int] = {}
         self.uploads = 0
+        self.oauth_requests: list[dict] = []
 
     def fail(self, method: str, code: int, msg: str = "error", times: int = 1) -> None:
         self.fail_next.setdefault(method, []).extend([{"error_code": code, "error_msg": msg}] * times)
@@ -39,6 +40,12 @@ class FakeVK:
         if request.url.host == "upload.vk.test":
             self.uploads += 1
             return httpx.Response(200, json={"server": 1, "photo": "[]", "hash": "h"})
+        if request.url.host == "oauth.vk.com" and request.url.path == "/access_token":
+            q = dict(request.url.params)
+            self.oauth_requests.append(q)
+            if q.get("code") != "good-code" or q.get("client_secret") != "app-secret":
+                return httpx.Response(200, json={"error": "invalid_grant", "error_description": "Code is invalid or expired."})
+            return httpx.Response(200, json={"access_token": VALID_USER_TOKEN, "expires_in": 86400, "user_id": 1})
         if request.url.host == "lp.vk.test":
             return httpx.Response(200, json={"ts": "2", "updates": []})
         method = request.url.path.rsplit("/", 1)[-1]

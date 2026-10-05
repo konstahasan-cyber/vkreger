@@ -53,6 +53,7 @@ def check_account(db: Session, account: VKAccount, *, refresh_groups: bool = Tru
             account.vk_user_id = int(user["id"])
             permissions = client.get_app_permissions()
             account.info = {
+                **(account.info or {}),
                 "first_name": user.get("first_name"),
                 "last_name": user.get("last_name"),
                 "screen_name": user.get("screen_name"),

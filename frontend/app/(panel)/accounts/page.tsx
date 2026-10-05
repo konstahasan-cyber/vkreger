@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { fmtDate } from "@/lib/format";
 import type { Account, Proxy } from "@/lib/types";
@@ -30,6 +30,49 @@ function TokenGuide() {
   );
 }
 
+interface OAuthConfig { configured: boolean; app_id: number | null; offline: boolean; redirect_uri: string }
+
+function OAuthSetup({ config, onSaved }: { config: OAuthConfig; onSaved: () => void }) {
+  const action = useAction();
+  const [appId, setAppId] = useState(config.app_id ? String(config.app_id) : "");
+  const [secret, setSecret] = useState("");
+  const [open, setOpen] = useState(!config.configured);
+  const host = config.redirect_uri.replace(/^https?:\/\//, "").split("/")[0].split(":")[0];
+  if (!open) return <button className="small ghost" onClick={() => setOpen(true)}>⚙️ Настройки входа через VK</button>;
+  return (
+    <div className="card step-card">
+      <h2>🔐 Настройка входа через VK (один раз)</h2>
+      <p className="muted">Токен будет получать сам сервер — так VK не блокирует его из-за другого IP, и ничего не нужно копировать из адресной строки.</p>
+      <ol style={{ paddingLeft: 18 }}>
+        <li>Откройте своё приложение на <a href="https://dev.vk.com/ru/admin/apps-list" target="_blank" rel="noreferrer">dev.vk.com</a> → «Настройки». Найдите поле <b>«Доверенный redirect URL»</b> (или «Redirect URI») и вставьте:
+          <div className="row" style={{ margin: "6px 0" }}><code style={{ background: "var(--panel-2)", padding: "6px 10px", borderRadius: 8 }}>{config.redirect_uri}</code>
+            <button className="small" onClick={() => navigator.clipboard?.writeText(config.redirect_uri)}>📋 Скопировать</button></div>
+          Если есть поле <b>«Базовый домен»</b> — впишите <code>{host}</code>. Сохраните настройки в VK.</li>
+        <li>Там же: «Разработка» → «Ключи доступа» → <b>«Защищённый ключ»</b> → «Показать». Скопируйте его сюда (он хранится зашифрованным):</li>
+      </ol>
+      <Alerts error={action.error} />
+      <div className="form-grid">
+        <Field label="ID приложения"><input value={appId} onChange={(e) => setAppId(e.target.value.replace(/\D/g, ""))} placeholder="54805330" /></Field>
+        <Field label="Защищённый ключ" hint={config.configured ? "Уже сохранён. Заполните, только если хотите заменить." : undefined}><input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} /></Field>
+      </div>
+      <div className="row">
+        <button className="primary" disabled={action.busy || !appId || (!config.configured && !secret)} onClick={async () => {
+          const r = await action.run(() => api("/vk/oauth/config", { method: "PUT", json: { app_id: Number(appId), secret: secret || null, offline: false } }));
+          if (r) { setSecret(""); setOpen(false); onSaved(); }
+        }}>Сохранить</button>
+        {config.configured && <button className="ghost" onClick={() => setOpen(false)}>Свернуть</button>}
+      </div>
+    </div>
+  );
+}
+
+function tokenExpiry(a: Account): { text: string; expired: boolean } | null {
+  const raw = (a.info as { token_expires_at?: string | null }).token_expires_at;
+  if (!raw) return null;
+  const d = new Date(raw);
+  return { text: d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }), expired: d.getTime() < Date.now() };
+}
+
 export default function AccountsPage() {
   const { data: accounts, reload, error } = useLoad<Account[]>("/accounts");
   const { data: proxies, reload: reloadProxies } = useLoad<Proxy[]>("/proxies");
@@ -39,6 +82,18 @@ export default function AccountsPage() {
   const [replaceFor, setReplaceFor] = useState<Account | null>(null);
   const [newToken, setNewToken] = useState("");
   const [groupsOf, setGroupsOf] = useState<Account | null>(null);
+  const { data: oauthConfig, reload: reloadOAuth } = useLoad<OAuthConfig>("/vk/oauth/config");
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("vk_ok")) action.setMessage(q.get("vk_ok"));
+    if (q.get("vk_error")) action.setError(q.get("vk_error"));
+    if (q.get("vk_ok") || q.get("vk_error")) window.history.replaceState(null, "", "/accounts");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const vkLogin = async (body: { account_id?: number; name?: string }) => {
+    const r = await action.run(() => api<{ url: string }>("/vk/oauth/start", { method: "POST", json: body }));
+    if (r) window.location.href = r.url;
+  };
 
   const freeProxies = (proxies || []).filter((p) => !p.account_id && p.status !== "dead");
   const act = async (fn: () => Promise<unknown>, ok: string) => { await action.run(fn, ok); reload(); reloadProxies(); };
@@ -57,9 +112,13 @@ export default function AccountsPage() {
     <>
       <div className="topbar">
         <div><h1>Аккаунты VK</h1><div className="page-sub">От имени этих аккаунтов публикуются посты. Токены хранятся зашифрованными.</div></div>
-        <button className="primary big" onClick={() => setShowAdd(true)}>+ Добавить аккаунт</button>
+        <div className="row">
+          {oauthConfig?.configured && <button className="primary big" onClick={() => vkLogin({ name: `Аккаунт ${(accounts?.length || 0) + 1}` })}>🔐 Войти через VK</button>}
+          <button className={oauthConfig?.configured ? "" : "primary big"} onClick={() => setShowAdd(true)}>+ Добавить по токену</button>
+        </div>
       </div>
       <Alerts error={error || action.error} message={action.message} />
+      {oauthConfig && <div style={{ marginBottom: 16 }}><OAuthSetup config={oauthConfig} onSaved={reloadOAuth} /></div>}
       {accounts && accounts.length === 0 && (
         <div className="card"><Empty icon="👤" title="Аккаунтов пока нет"><button className="primary" onClick={() => setShowAdd(true)}>+ Добавить аккаунт</button></Empty></div>
       )}
@@ -73,10 +132,11 @@ export default function AccountsPage() {
               </div>
               <Badge value={a.status} />
             </div>
-            {a.status !== "active" && a.last_error && <div className="alert err small" style={{ marginTop: 10 }}>⚠️ <div>{a.last_error}<br /><b>Решение:</b> получите новый токен и нажмите «Заменить токен».</div></div>}
+            {a.status !== "active" && a.last_error && <div className="alert err small" style={{ marginTop: 10 }}>⚠️ <div>{a.last_error}<br /><b>Решение:</b> {oauthConfig?.configured ? "нажмите «Войти заново»." : "настройте «Вход через VK» выше и нажмите «Войти заново»."}</div></div>}
             <div className="meta-line" style={{ margin: "10px 0" }}>
               <span>👥 <a style={{ cursor: "pointer" }} onClick={() => setGroupsOf(a)}>сообществ: {a.groups_cache.length}</a></span>
               <span>🕐 проверен {fmtDate(a.last_checked_at)}</span>
+              {tokenExpiry(a) && <span style={{ color: tokenExpiry(a)!.expired ? "var(--danger)" : undefined }}>🔑 токен {tokenExpiry(a)!.expired ? "истёк" : "до"} {tokenExpiry(a)!.text}</span>}
             </div>
             <Field label="Прокси">
               <select value={a.proxy_id ?? ""} onChange={(e) => act(() => api(`/accounts/${a.id}/proxy`, { method: "PUT", json: { proxy_id: e.target.value ? Number(e.target.value) : null } }), "Прокси обновлён")}>
@@ -88,7 +148,8 @@ export default function AccountsPage() {
             <label className="check small" style={{ marginBottom: 12 }}><input type="checkbox" checked={a.auto_replace_proxy} onChange={(e) => act(() => api(`/accounts/${a.id}`, { method: "PATCH", json: { auto_replace_proxy: e.target.checked } }), "Сохранено")} /> менять прокси, если он перестал работать</label>
             <div className="row">
               <button className="small" disabled={action.busy} onClick={() => act(() => api(`/accounts/${a.id}/refresh`, { method: "POST" }), "Проверено, список сообществ обновлён")}>🔄 Проверить</button>
-              <button className={`small ${a.status !== "active" ? "primary" : ""}`} onClick={() => { setReplaceFor(a); setNewToken(""); }}>🔑 Заменить токен</button>
+              {oauthConfig?.configured && <button className={`small ${a.status !== "active" ? "primary" : ""}`} onClick={() => vkLogin({ account_id: a.id })}>🔐 Войти заново</button>}
+              <button className={`small ${a.status !== "active" && !oauthConfig?.configured ? "primary" : ""}`} onClick={() => { setReplaceFor(a); setNewToken(""); }}>🔑 Заменить токен</button>
               <button className="small ghost" onClick={() => confirm(`Удалить аккаунт «${a.name}»? Проекты, привязанные к нему, останутся без аккаунта.`) && act(() => api(`/accounts/${a.id}`, { method: "DELETE" }), "Удалён")}>🗑</button>
             </div>
           </div>
