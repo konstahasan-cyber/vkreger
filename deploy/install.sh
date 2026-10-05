@@ -54,7 +54,19 @@ if [ ! -f .env ]; then
   done
   OPENAI_API_KEY=$(ask_secret "Ключ OpenAI (sk-..., можно оставить пустым и добавить позже): ")
 
-  if [ -n "$DOMAIN" ]; then SITE_ADDRESS="$DOMAIN"; PUBLIC_URL="https://$DOMAIN"; else SITE_ADDRESS=":80"; PUBLIC_URL="http://$SERVER_IP"; fi
+  port_busy() { ss -tlnH "sport = :$1" 2>/dev/null | grep -q . ; }
+  HTTP_PORT=80
+  if port_busy 80 && ! docker ps --format '{{.Names}}' | grep -q 'vkreger-caddy'; then
+    HTTP_PORT=8080
+    echo "Порт 80 уже занят другой программой — панель будет на порту $HTTP_PORT"
+  fi
+  if [ -n "$DOMAIN" ]; then
+    SITE_ADDRESS="$DOMAIN"; PUBLIC_URL="https://$DOMAIN"
+    if port_busy 443; then echo "ВНИМАНИЕ: порт 443 занят (VPN?). HTTPS для домена не заработает, пока он занят."; fi
+  else
+    SITE_ADDRESS=":80"
+    if [ "$HTTP_PORT" = 80 ]; then PUBLIC_URL="http://$SERVER_IP"; else PUBLIC_URL="http://$SERVER_IP:$HTTP_PORT"; fi
+  fi
   SECRET_KEY=$(openssl rand -base64 48 | tr -d '\n=+/')
   ENCRYPTION_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
   PG_PASSWORD=$(openssl rand -hex 24)
@@ -84,7 +96,8 @@ PY
   set_env POSTGRES_PASSWORD "$PG_PASSWORD"
   set_env OPENAI_API_KEY "$OPENAI_API_KEY"
   set_env SITE_ADDRESS "$SITE_ADDRESS"
-  if [ -n "$DOMAIN" ]; then set_env HTTPS_BIND 443; else set_env HTTPS_BIND 127.0.0.1:443; fi
+  set_env HTTP_PORT "$HTTP_PORT"
+  if [ -n "$DOMAIN" ]; then set_env HTTPS_BIND 443; else set_env HTTPS_BIND 127.0.0.1:8443; fi
   chmod 600 .env
   CREATED_ENV=1
 else

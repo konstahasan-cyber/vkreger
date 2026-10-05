@@ -15,6 +15,21 @@ case "${1:-help}" in
   logs)    dc logs --tail "${2:-100}" -f backend worker ;;
   backup)  need_root "$@"; bash deploy/backup.sh ;;
   env)     need_root "$@"; "${EDITOR:-nano}" .env; dc up -d; echo "Настройки применены." ;;
+  port)    need_root "$@"
+           [ -n "${2:-}" ] || { echo "Использование: vk port 8080"; exit 1; }
+           sed -i '/^HTTP_PORT=/d' .env && echo "HTTP_PORT=$2" >> .env
+           ip=$(curl -fsS -4 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+           url="http://$ip"; [ "$2" = 80 ] || url="http://$ip:$2"
+           sed -i '/^PUBLIC_BASE_URL=/d;/^CORS_ORIGINS=/d' .env && printf 'PUBLIC_BASE_URL=%s\nCORS_ORIGINS=%s\n' "$url" "$url" >> .env
+           dc up -d --force-recreate caddy backend; echo "Панель теперь здесь: $url" ;;
+  doctor)
+    echo "== Контейнеры"; dc ps -a --format "table {{.Service}}\t{{.Status}}"
+    echo; echo "== Кто слушает порты 80/443/8080"; ss -tlnp 2>/dev/null | grep -E ':(80|443|8080|8443) ' || echo "никто"
+    port=$(grep -m1 '^HTTP_PORT=' .env | cut -d= -f2- || true); port=${port:-80}
+    echo; echo "== Ответ панели изнутри сервера (порт $port)"; curl -sS -m 5 -o /dev/null -w "HTTP %{http_code}\n" "http://localhost:$port" 2>&1 || true
+    echo; echo "== Последние сообщения веб-сервера"; dc logs --tail 15 caddy 2>&1 | tail -15
+    echo; echo "== Брандмауэр"; (ufw status 2>/dev/null || echo "ufw не установлен") | head -5
+    echo; echo "Адрес: $(grep -m1 '^PUBLIC_BASE_URL=' .env | cut -d= -f2-)" ;;
   *)
     cat <<'HELP'
 Команды VKreger:
@@ -26,6 +41,8 @@ case "${1:-help}" in
   vk logs      — логи в реальном времени (выход: Ctrl+C)
   vk backup    — резервная копия базы и картинок
   vk env       — изменить настройки (.env), например ключ OpenAI
+  vk port 8080 — перенести панель на другой порт (если 80 занят)
+  vk doctor    — диагностика: почему панель не открывается
 HELP
     ;;
 esac
