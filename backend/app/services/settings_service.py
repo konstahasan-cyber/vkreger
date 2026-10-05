@@ -62,9 +62,33 @@ class RuntimeSettings:
         return {key: getattr(self, key) for key in EDITABLE_KEYS}
 
 
+OPENAI_KEY_SETTING = "OPENAI_API_KEY_ENC"
+
+
 def load_runtime_settings(db: Session) -> RuntimeSettings:
-    rows = db.execute(select(AppSetting).where(AppSetting.key.in_(list(EDITABLE_KEYS)))).scalars().all()
-    return RuntimeSettings({row.key: row.value for row in rows})
+    rows = db.execute(select(AppSetting).where(AppSetting.key.in_([*EDITABLE_KEYS, OPENAI_KEY_SETTING]))).scalars().all()
+    overrides = {row.key: row.value for row in rows if row.key != OPENAI_KEY_SETTING}
+    key_row = next((row for row in rows if row.key == OPENAI_KEY_SETTING), None)
+    if key_row and key_row.value:
+        from app.core.crypto import decrypt
+
+        overrides["OPENAI_API_KEY"] = decrypt(str(key_row.value))  # never part of as_dict()
+    return RuntimeSettings(overrides)
+
+
+def save_openai_key(db: Session, key: str | None) -> None:
+    """Store the OpenAI key entered in the panel (encrypted); None removes it (env key is used)."""
+    from app.core.crypto import encrypt
+
+    row = db.get(AppSetting, OPENAI_KEY_SETTING)
+    if not key:
+        if row:
+            db.delete(row)
+    elif row is None:
+        db.add(AppSetting(key=OPENAI_KEY_SETTING, value=encrypt(key)))
+    else:
+        row.value = encrypt(key)
+    db.flush()
 
 
 def update_runtime_settings(db: Session, values: dict[str, Any]) -> RuntimeSettings:

@@ -5,7 +5,30 @@ import { api } from "@/lib/api";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { Alerts, Field, Hint, useAction, useLoad } from "@/components/ui";
 
-interface Settings { values: Record<string, unknown>; editable: string[]; provider: string; openai_key_configured: boolean; operations: string[] }
+interface Settings { values: Record<string, unknown>; editable: string[]; provider: string; openai_key_configured: boolean; openai_key_source: string | null; openai_key_hint: string | null; operations: string[] }
+
+function OpenAIKey({ data, onSaved }: { data: Settings; onSaved: () => void }) {
+  const action = useAction();
+  const [key, setKey] = useState("");
+  return (
+    <div className="card step-card">
+      <h2>🔑 Ключ OpenAI</h2>
+      {data.openai_key_configured
+        ? <p>Ключ подключён ✓ <span className="muted small">(заканчивается на {data.openai_key_hint}, {data.openai_key_source === "panel" ? "введён в панели" : "из файла .env"})</span></p>
+        : <p className="muted">Ключ не задан — AI не сможет писать тексты.</p>}
+      <p className="small muted">Возьмите ключ на <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">platform.openai.com/api-keys</a> → «Create new secret key» и вставьте сюда (Ctrl+V). Панель проверит его в OpenAI и сохранит зашифрованным.</p>
+      <Alerts error={action.error} message={action.message} />
+      <div className="row">
+        <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="sk-proj-…" style={{ flex: 1, minWidth: 260 }} />
+        <button className="primary" disabled={action.busy || key.trim().length < 10} onClick={async () => {
+          const r = await action.run(() => api("/ai/openai-key", { method: "PUT", json: { key } }), "Ключ проверен и сохранён ✓");
+          if (r) { setKey(""); onSaved(); }
+        }}>{action.busy ? "Проверяем…" : "Проверить и сохранить"}</button>
+        {data.openai_key_source === "panel" && <button className="small ghost" onClick={async () => { await action.run(() => api("/ai/openai-key", { method: "PUT", json: { key: null } }), "Ключ из панели удалён"); onSaved(); }}>Удалить</button>}
+      </div>
+    </div>
+  );
+}
 interface Call { id: number; model: string; operation: string; agent: string | null; input_tokens: number; cached_tokens: number; output_tokens: number; images: number; estimated_cost: number; project_id: number | null; success: boolean; automatic: boolean; created_at: string }
 
 const JSON_KEYS = ["AI_MODEL_OVERRIDES", "AI_PRICING_JSON", "IMAGE_PRICING_JSON"];
@@ -73,8 +96,7 @@ export default function AISettingsPage() {
       <h1>Настройки AI</h1>
       <div className="page-sub">Модели, лимиты расходов и качество контента. Изменения применяются сразу, без перезапуска.</div>
       {data.provider === "fake" && <Hint kind="warn">Включён демо-режим (AI_PROVIDER=fake): тексты ненастоящие. Для работы поставьте AI_PROVIDER=openai в файле .env.</Hint>}
-      {!data.openai_key_configured && data.provider !== "fake" && <Hint kind="warn">Ключ OpenAI не задан. Впишите OPENAI_API_KEY в файл .env и перезапустите панель.</Hint>}
-      {data.openai_key_configured && <Hint>Ключ OpenAI подключён ✓</Hint>}
+      {data.provider !== "fake" && <OpenAIKey data={data} onSaved={reload} />}
       <Alerts error={action.error} message={action.message} />
       <div className="grid-2">
         {GROUPS.map((g) => (

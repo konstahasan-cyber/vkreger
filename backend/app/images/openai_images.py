@@ -17,13 +17,13 @@ class OpenAIImageProvider:
     name = "openai"
     enabled = True
 
-    def __init__(self, model: str, quality: str, price_per_image: float):
+    def __init__(self, model: str, quality: str, price_per_image: float, api_key: str | None = None):
         from app.openai.provider import OpenAIProvider
 
         self.model = model
         self.quality = quality
         self.price = price_per_image
-        self._client = OpenAIProvider().client
+        self._client = OpenAIProvider(api_key=api_key).client
 
     def generate(self, prompt: str, fmt: ImageFormat) -> GeneratedImage:
         import openai

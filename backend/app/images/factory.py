@@ -18,7 +18,8 @@ def get_image_provider(rs: RuntimeSettings) -> ImageProvider:
     if name == "openai":
         from app.images.openai_images import OpenAIImageProvider
 
-        return OpenAIImageProvider(rs.IMAGE_MODEL, rs.IMAGE_QUALITY, rs.image_pricing.get(rs.IMAGE_MODEL, 0.0))
+        return OpenAIImageProvider(rs.IMAGE_MODEL, rs.IMAGE_QUALITY, rs.image_pricing.get(rs.IMAGE_MODEL, 0.0),
+                                   api_key=rs.OPENAI_API_KEY)
     if name == "fake":
         from app.images.fake import FakeImageProvider
 

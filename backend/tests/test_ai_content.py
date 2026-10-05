@@ -151,3 +151,21 @@ def test_fill_queue_respects_slots_and_autoapprove(client, admin_headers, db, vk
     assert len(times) == len(set(times))
     again = fill_queue(db, p, horizon_days=2, max_new=10, automatic=True)
     assert again["created"] == [] and again["skipped"] == "queue is full"
+
+
+def test_openai_key_entered_in_panel(client, admin_headers, viewer_headers, db):
+    from app.services.settings_service import load_runtime_settings
+
+    assert client.put("/api/ai/openai-key", json={"key": "bad"}, headers=admin_headers).status_code == 422
+    assert client.put("/api/ai/openai-key", json={"key": "sk-x"}, headers=viewer_headers).status_code == 403
+    r = client.put("/api/ai/openai-key", json={"key": " sk-proj-ABC\n123xyz9 "}, headers=admin_headers)
+    assert r.status_code == 200
+    info = client.get("/api/ai/settings", headers=admin_headers).json()
+    assert info["openai_key_source"] == "panel" and info["openai_key_hint"] == "…xyz9"
+    assert "sk-proj" not in str(info)
+    db.expire_all()
+    assert load_runtime_settings(db).OPENAI_API_KEY == "sk-proj-ABC123xyz9"
+    raw = db.execute(__import__("sqlalchemy").text("select value from app_settings where key='OPENAI_API_KEY_ENC'")).scalar_one()
+    assert "sk-proj" not in str(raw)
+    client.put("/api/ai/openai-key", json={"key": None}, headers=admin_headers)
+    assert client.get("/api/ai/settings", headers=admin_headers).json()["openai_key_source"] in (None, "env")

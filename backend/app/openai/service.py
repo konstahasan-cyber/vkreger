@@ -30,7 +30,7 @@ class AIService:
     @property
     def provider(self) -> LLMProvider:
         if self._provider is None:
-            self._provider = get_provider()
+            self._provider = get_provider(self.rs)
         return self._provider
 
     def record(self, *, model: str, operation: str, agent: str | None, usage: TokenUsage, project_id: int | None,

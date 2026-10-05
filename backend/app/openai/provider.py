@@ -133,11 +133,27 @@ def set_provider_override(provider: LLMProvider | None) -> None:
     _provider_override = provider
 
 
-def get_provider() -> LLMProvider:
+def get_provider(rs=None) -> LLMProvider:  # noqa: ANN001 - rs: RuntimeSettings (key entered in the panel)
     if _provider_override is not None:
         return _provider_override
     if settings.AI_PROVIDER == "fake":
         from app.openai.fake import FakeProvider
 
         return FakeProvider()
-    return OpenAIProvider()
+    return OpenAIProvider(api_key=getattr(rs, "OPENAI_API_KEY", None) if rs is not None else None)
+
+
+def verify_openai_key(key: str) -> str | None:
+    """Return None if the key works, otherwise a human-readable error."""
+    import openai
+    from openai import OpenAI
+
+    try:
+        OpenAI(api_key=key, base_url=settings.OPENAI_BASE_URL, timeout=20, max_retries=1).models.list()
+    except openai.AuthenticationError:
+        return "OpenAI не принял ключ (неверный или отозванный)"
+    except openai.PermissionDeniedError:
+        return "Ключ верный, но у него нет доступа (проверьте права ключа или проекта в OpenAI)"
+    except openai.OpenAIError as exc:
+        return f"Не удалось проверить ключ: {type(exc).__name__}"
+    return None

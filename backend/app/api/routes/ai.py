@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -27,7 +28,9 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(require(Permis
         "values": rs.as_dict(),
         "editable": sorted(EDITABLE_KEYS),
         "provider": settings.AI_PROVIDER,
-        "openai_key_configured": bool(settings.OPENAI_API_KEY),
+        "openai_key_configured": bool(rs.OPENAI_API_KEY),
+        "openai_key_source": "panel" if rs._overrides.get("OPENAI_API_KEY") else ("env" if settings.OPENAI_API_KEY else None),
+        "openai_key_hint": f"…{rs.OPENAI_API_KEY[-4:]}" if rs.OPENAI_API_KEY else None,
         "pricing": rs.pricing,
         "image_pricing": rs.image_pricing,
         "operations": ["project_setup", "content_plan", "post_compose", "post_edit", "image_prompt",
@@ -68,3 +71,27 @@ def usage_calls(project_id: int | None = None, operation: str | None = None, lim
 @router.get("/limits")
 def limits(project_id: int | None = None, db: Session = Depends(get_db), _: User = Depends(require(Permission.VIEW))) -> dict:
     return CostGuard(db, load_runtime_settings(db)).status(project_id)
+
+
+class OpenAIKeyIn(BaseModel):
+    key: str | None = Field(default=None, max_length=500)
+
+
+@router.put("/openai-key")
+def put_openai_key(body: OpenAIKeyIn, request: Request, db: Session = Depends(get_db),
+                   user: User = Depends(require(Permission.MANAGE_AI_SETTINGS))) -> dict:
+    from app.openai.provider import verify_openai_key
+    from app.services.settings_service import save_openai_key
+
+    key = "".join((body.key or "").split())  # drop spaces/line breaks that sneak in when copying
+    if key:
+        if not key.startswith("sk-"):
+            raise HTTPException(422, "Ключ OpenAI должен начинаться с sk-")
+        if settings.AI_PROVIDER != "fake":
+            error = verify_openai_key(key)
+            if error:
+                raise HTTPException(422, error)
+    save_openai_key(db, key or None)
+    audit(db, user.id, "ai.openai_key", "app_settings", None, {"set": bool(key)}, client_ip(request))
+    db.commit()
+    return {"ok": True, "configured": bool(key) or bool(settings.OPENAI_API_KEY)}
