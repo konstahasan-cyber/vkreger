@@ -18,11 +18,11 @@ export default function MessagesPage() {
   return (
     <>
       <div className="topbar">
-        <h1>Комментарии и сообщения</h1>
+        <div><h1>Сообщения</h1><div className="page-sub">Комментарии и личные сообщения сообществ. AI определяет тип и готовит ответ.</div></div>
         <div className="row">
           <ProjectSelect value={projectId} onChange={setProjectId} />
           <select value={cls} onChange={(e) => setCls(e.target.value)} style={{ width: 140 }}>
-            <option value="">Все типы</option>{["QUESTION", "LEAD", "NEGATIVE", "SPAM", "OTHER"].map((c) => <option key={c}>{c}</option>)}
+            <option value="">Все типы</option>{[["QUESTION", "Вопросы"], ["LEAD", "Заявки"], ["NEGATIVE", "Негатив"], ["SPAM", "Спам"], ["OTHER", "Другое"]].map(([c, l]) => <option key={c} value={c}>{l}</option>)}
           </select>
           <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ width: 200 }}>
             <option value="pending_approval,suggested,new,failed">Требуют внимания</option>

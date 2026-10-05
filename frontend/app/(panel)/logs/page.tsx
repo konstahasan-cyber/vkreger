@@ -14,7 +14,7 @@ export default function LogsPage() {
   const { data: audit } = useLoad<Page<AuditLog>>(tab === "audit" ? "/logs/audit?limit=200" : null, [tab]);
   return (
     <>
-      <h1>System Logs</h1>
+      <h1>Журнал</h1><div className="page-sub">Ошибки и события системы, а также кто и что менял в панели.</div>
       <div className="tabs">
         <button className={tab === "system" ? "active" : ""} onClick={() => setTab("system")}>Журнал ошибок и событий</button>
         <button className={tab === "audit" ? "active" : ""} onClick={() => setTab("audit")}>Аудит действий</button>

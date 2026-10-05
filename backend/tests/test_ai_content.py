@@ -95,7 +95,7 @@ def test_cost_limits_block_automatic_tasks(client, admin_headers, viewer_headers
 
     job = client.post("/api/posts/generate", json={"project_id": project["id"]}, headers=admin_headers).json()
     job = client.get(f"/api/jobs/{job['id']}", headers=admin_headers).json()
-    assert job["status"] == "failed" and "limit" in job["error"]
+    assert job["status"] == "failed" and "лимит" in job["error"]
     forced = client.post("/api/posts/generate", json={"project_id": project["id"], "force": True},
                          headers=admin_headers).json()
     assert client.get(f"/api/jobs/{forced['id']}", headers=admin_headers).json()["status"] == "success"

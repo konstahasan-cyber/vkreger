@@ -146,6 +146,16 @@ class FakeProvider:
                 "lead": {"name": None, "contact": None, "need": "интересуется услугой" if cls == "LEAD" else None},
                 "reason": "keyword heuristics (fake provider)"}
 
+    def _op_brand_analysis(self, input_text: str, seed: int) -> dict:
+        import re as _re
+
+        colors = _re.findall(r"#[0-9a-f]{6}", input_text)[:4] or ["#c0392b", "#2c3e50"]
+        return {"palette": colors, "fonts": ["Montserrat"], "visual_style": "Тёплый минимализм",
+                "image_style": "warm minimalist photo, soft light, brand colors", "tone_of_voice": "Дружелюбно, на «вы»",
+                "avatar_prompt": "coffee bean symbol", "cover_prompt": "coffee shop counter panorama",
+                "key_phrases": ["Свежая обжарка каждый день"], "business_facts": ["Кофе навынос от 150 ₽"],
+                "summary": "Кофейня со своей обжаркой"}
+
     def _op_analytics_review(self, input_text: str, seed: int) -> dict:
         return {"summary": "Стабильные показатели", "change_strategy": False, "rubric_weights": [],
                 "best_times": ["10:00", "19:00"], "new_ideas": [{"rubric_code": "faq", "topic": "Новый FAQ"}]}

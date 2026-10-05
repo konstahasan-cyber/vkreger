@@ -13,7 +13,7 @@ from app.schemas.account import AccountCreate, AccountOut, AccountProxyUpdate, A
 from app.schemas.community import CommunityOut
 from app.services import account_service, community_service
 from app.services.audit import audit
-from app.vk.errors import VKError
+from app.vk.errors import VKError, describe_vk_error
 
 router = APIRouter(prefix="/accounts", tags=["vk accounts"])
 
@@ -96,7 +96,7 @@ def account_communities(account_id: int, sync: bool = False, db: Session = Depen
         try:
             communities = community_service.sync_account_communities(db, account)
         except VKError as exc:
-            raise HTTPException(502, f"VK error: {exc}") from exc
+            raise HTTPException(502, describe_vk_error(exc)) from exc
         db.commit()
     else:
         communities = account.communities

@@ -58,8 +58,8 @@ class CostGuard:
             return
         if force and not automatic:
             return
-        scope = "global" if status["global_exceeded"] else f"project #{project_id}"
-        raise CostLimitExceeded(f"Daily AI cost limit exceeded ({scope}); automatic AI tasks are paused")
+        scope = "общий" if status["global_exceeded"] else f"проект #{project_id}"
+        raise CostLimitExceeded(f"Превышен дневной лимит расходов на AI ({scope}) — автоматические задачи на паузе до завтра")
 
 
 def usage_report(db: Session) -> dict:

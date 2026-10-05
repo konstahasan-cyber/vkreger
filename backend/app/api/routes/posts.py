@@ -26,7 +26,7 @@ router = APIRouter(tags=["content"])
 def _get(db: Session, post_id: int) -> Post:
     post = db.get(Post, post_id)
     if post is None:
-        raise HTTPException(404, "Post not found")
+        raise HTTPException(404, "Пост не найден")
     return post
 
 
@@ -90,7 +90,7 @@ def update_post(post_id: int, body: PostUpdate, db: Session = Depends(get_db),
                 user: User = Depends(require(Permission.MANAGE_CONTENT))) -> PostOut:
     post = _get(db, post_id)
     if post.status in (PostStatus.PUBLISHED.value, PostStatus.PUBLISHING.value):
-        raise HTTPException(409, f"Post is {post.status} and can't be edited")
+        raise HTTPException(409, "Опубликованный пост нельзя редактировать")
     changes = body.model_dump(exclude_unset=True)
     if "image_format" in changes and changes["image_format"] is not None:
         changes["image_format"] = changes["image_format"].value
@@ -108,7 +108,7 @@ def delete_post(post_id: int, request: Request, db: Session = Depends(get_db),
                 user: User = Depends(require(Permission.MANAGE_CONTENT))) -> None:
     post = _get(db, post_id)
     if post.status == PostStatus.PUBLISHING.value:
-        raise HTTPException(409, "Post is being published")
+        raise HTTPException(409, "Пост сейчас публикуется")
     audit(db, user.id, "post.delete", "post", post.id, {"status": post.status}, client_ip(request))
     db.delete(post)
     db.commit()
@@ -120,7 +120,7 @@ def generate(body: GeneratePostsRequest, db: Session = Depends(get_db),
     from app.workers.tasks.ai_jobs import generate_posts_task
 
     if body.force and not has_permission(user.role, Permission.FORCE_AI_LIMIT):
-        raise HTTPException(403, "Forcing past AI cost limits requires admin rights")
+        raise HTTPException(403, "Превысить лимит расходов на AI может только администратор")
     project_service.get_project(db, body.project_id)
     job = create_job(db, "generate_posts", project_id=body.project_id, params=body.model_dump(exclude={"project_id"}),
                      user_id=user.id)
@@ -136,7 +136,7 @@ def approve(post_id: int, request: Request, db: Session = Depends(get_db),
     """Approve a draft: scheduled if it has a time (or gets the next free slot)."""
     post = _get(db, post_id)
     if post.status not in (PostStatus.DRAFT.value, PostStatus.APPROVED.value, PostStatus.FAILED.value):
-        raise HTTPException(409, f"Post is {post.status}")
+        raise HTTPException(409, f"Действие недоступно для поста в статусе «{post.status}»")
     if post.community_id is None:
         post.status = PostStatus.APPROVED.value
     else:
@@ -160,7 +160,7 @@ def schedule(post_id: int, body: ScheduleRequest, request: Request, db: Session 
 def unschedule(post_id: int, db: Session = Depends(get_db), _: User = Depends(require(Permission.PUBLISH))) -> PostOut:
     post = _get(db, post_id)
     if post.status != PostStatus.SCHEDULED.value:
-        raise HTTPException(409, f"Post is {post.status}")
+        raise HTTPException(409, f"Действие недоступно для поста в статусе «{post.status}»")
     post.status = PostStatus.DRAFT.value
     db.commit()
     return PostOut.from_model(post)
@@ -180,7 +180,7 @@ def publish_now(post_id: int, request: Request, db: Session = Depends(get_db),
 def retry(post_id: int, db: Session = Depends(get_db), _: User = Depends(require(Permission.PUBLISH))) -> PostOut:
     post = _get(db, post_id)
     if post.status != PostStatus.FAILED.value:
-        raise HTTPException(409, "Only failed posts can be retried")
+        raise HTTPException(409, "Повторить можно только пост с ошибкой")
     post.attempts = 0
     schedule_post(db, post, datetime.now().astimezone())
     db.commit()
@@ -193,15 +193,15 @@ def regenerate_image(post_id: int, body: ImageRequest, db: Session = Depends(get
     from app.content.generator import generate_image_for_post
 
     if body.force and not has_permission(user.role, Permission.FORCE_AI_LIMIT):
-        raise HTTPException(403, "Forcing past AI cost limits requires admin rights")
+        raise HTTPException(403, "Превысить лимит расходов на AI может только администратор")
     post = _get(db, post_id)
     if post.status in (PostStatus.PUBLISHED.value, PostStatus.PUBLISHING.value):
-        raise HTTPException(409, f"Post is {post.status}")
+        raise HTTPException(409, f"Действие недоступно для поста в статусе «{post.status}»")
     if body.image_prompt:
         post.image_prompt = body.image_prompt
     if not generate_image_for_post(db, post, fmt=body.image_format, force=body.force):
         db.commit()
-        raise HTTPException(409, "Image provider disabled or generation failed (see System Logs)")
+        raise HTTPException(409, "Генерация картинок выключена или не удалась (подробности — в Журнале)")
     db.commit()
     return PostOut.from_model(post)
 

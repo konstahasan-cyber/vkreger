@@ -134,6 +134,21 @@ class FakeVK:
     def m_groups_addCallbackServer(self, p: dict) -> dict:
         return {"server_id": 3}
 
+    def m_photos_getOwnerPhotoUploadServer(self, p: dict) -> dict:
+        return {"upload_url": "https://upload.vk.test/owner"}
+
+    def m_photos_saveOwnerPhoto(self, p: dict) -> dict:
+        self.avatar_saved = True
+        return {"photo_hash": "x", "photo_src": "https://vk.test/a.jpg"}
+
+    def m_photos_getOwnerCoverPhotoUploadServer(self, p: dict) -> dict:
+        self.cover_crop = (p.get("crop_x2"), p.get("crop_y2"))
+        return {"upload_url": "https://upload.vk.test/cover"}
+
+    def m_photos_saveOwnerCoverPhoto(self, p: dict) -> dict:
+        self.cover_saved = True
+        return {"images": []}
+
     def m_groups_getLongPollServer(self, p: dict) -> dict:
         return {"server": "https://lp.vk.test/poll", "key": "k", "ts": "1"}
 

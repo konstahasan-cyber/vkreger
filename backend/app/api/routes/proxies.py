@@ -20,7 +20,7 @@ router = APIRouter(prefix="/proxies", tags=["proxies"])
 def _get(db: Session, proxy_id: int) -> Proxy:
     proxy = db.get(Proxy, proxy_id)
     if proxy is None:
-        raise HTTPException(404, "Proxy not found")
+        raise HTTPException(404, "Прокси не найден")
     return proxy
 
 
@@ -88,7 +88,7 @@ def assign(proxy_id: int, account_id: int, request: Request, db: Session = Depen
     proxy = _get(db, proxy_id)
     account = db.get(VKAccount, account_id)
     if account is None:
-        raise HTTPException(404, "Account not found")
+        raise HTTPException(404, "Аккаунт не найден")
     try:
         bind_proxy(db, account, proxy)
     except ValueError as exc:
@@ -105,7 +105,7 @@ def delete_proxy(proxy_id: int, request: Request, db: Session = Depends(get_db),
     proxy = _get(db, proxy_id)
     if proxy.account is not None:
         # deleting would silently switch the account to a direct connection
-        raise HTTPException(409, f"Proxy is bound to account #{proxy.account.id}; unbind or replace it first")
+        raise HTTPException(409, f"Прокси привязан к аккаунту #{proxy.account.id} — сначала отвяжите или замените его")
     audit(db, user.id, "proxy.delete", "proxy", proxy.id, {"host": proxy.host}, client_ip(request))
     db.delete(proxy)
     db.commit()

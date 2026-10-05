@@ -88,7 +88,21 @@ export interface Project {
   context_summary: string | null;
   community_id: number | null;
   community_name: string | null;
+  brand: Brand;
   created_at: string;
+}
+
+export interface BrandAsset { path: string; version: number; uploaded_version?: number | null }
+
+export interface Brand {
+  community_name?: string;
+  style?: {
+    summary?: string; palette?: string[]; fonts?: string[]; visual_style?: string; image_style?: string;
+    tone_of_voice?: string; key_phrases?: string[]; business_facts?: string[]; source?: string; logo_url?: string | null;
+  };
+  design?: { colors?: string[]; style?: string };
+  avatar?: BrandAsset;
+  cover?: BrandAsset;
 }
 
 export interface ProjectDetail extends Project {

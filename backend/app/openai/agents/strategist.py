@@ -65,12 +65,26 @@ SETUP_SCHEMA = obj({
 })
 
 
+def _brand_block(project) -> str:  # noqa: ANN001
+    style = (project.brand or {}).get("style") or {}
+    if not style:
+        return ""
+    return "\n".join([
+        "Фирменный стиль уже определён по сайту компании — оформление и промпты делай в нём.",
+        f"Компания: {style.get('summary', '')}",
+        f"Палитра: {', '.join(style.get('palette') or [])}",
+        f"Визуальный стиль: {style.get('visual_style', '')}",
+        f"Тон текстов: {style.get('tone_of_voice', '')}",
+        "Факты: " + "; ".join((style.get("business_facts") or [])[:10]),
+    ])
+
+
 def project_setup(ai: AIService, project, *, force: bool = False) -> dict[str, Any]:  # noqa: ANN001
     return ai.run(
         operation="project_setup",
         agent=AgentRole.STRATEGIST.value,
         instructions=SETUP_INSTRUCTIONS,
-        input_text=render_blocks({"brief": project_brief(project)}),
+        input_text=render_blocks({"brief": project_brief(project), "brand_style": _brand_block(project)}),
         schema=SETUP_SCHEMA,
         project_id=project.id,
         force=force,

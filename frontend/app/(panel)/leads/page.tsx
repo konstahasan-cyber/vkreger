@@ -19,7 +19,7 @@ export default function LeadsPage() {
   return (
     <>
       <div className="topbar">
-        <h1>Лиды</h1>
+        <div><h1>Заявки</h1><div className="page-sub">Люди, которые захотели купить или записаться. AI собирает их из сообщений и комментариев.</div></div>
         <div className="row">
           <ProjectSelect value={projectId} onChange={setProjectId} />
           <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ width: 150 }}><option value="">Все</option>{Object.entries(STATUSES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
@@ -35,7 +35,7 @@ export default function LeadsPage() {
       )}
       <div className="card table-wrap">
         <table>
-          <thead><tr><th>#</th><th>Дата</th><th>Пользователь</th><th>Имя</th><th>Контакт</th><th>Потребность</th><th>Статус</th><th>Заметки</th></tr></thead>
+          <thead><tr><th>#</th><th>Дата</th><th>Пользователь</th><th>Имя</th><th>Контакт</th><th>Что хочет</th><th>Статус</th><th>Заметки</th></tr></thead>
           <tbody>{(data?.items || []).map((l) => (
             <tr key={l.id}>
               <td>{l.id}</td>
@@ -49,7 +49,7 @@ export default function LeadsPage() {
             </tr>))}
           </tbody>
         </table>
-        {data && data.items.length === 0 && <p className="muted">Лидов пока нет.</p>}
+        {data && data.items.length === 0 && <p className="muted">Заявок пока нет. Они появятся, когда в сообщество начнут писать (нужно включить приём сообщений на странице «Сообщества»).</p>}
       </div>
     </>
   );

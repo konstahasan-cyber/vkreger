@@ -48,7 +48,7 @@ def audit_logs(action: str | None = None, limit: int = 100, offset: int = 0, db:
 def get_job(job_id: int, db: Session = Depends(get_db), _: User = Depends(require(Permission.VIEW))) -> Job:
     job = db.get(Job, job_id)
     if job is None:
-        raise HTTPException(404, "Job not found")
+        raise HTTPException(404, "Задача не найдена")
     return job
 
 

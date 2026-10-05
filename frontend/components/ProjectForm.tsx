@@ -56,52 +56,53 @@ export default function ProjectForm({ initial, submitLabel, busy, onSubmit }: {
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSubmit(toPayload(s)); }}>
       <div className="card">
-        <h2>Бизнес</h2>
+        <h2>🏪 О бизнесе</h2>
+        <p className="small muted">Эти данные AI использует для всех постов. Чем конкретнее (цены, адрес, фишки) — тем меньше «воды».</p>
         <div className="form-grid">
-          <Field label="Название проекта *"><input required value={s.name} onChange={set("name")} /></Field>
-          <Field label="Название бизнеса *"><input required value={s.business_name} onChange={set("business_name")} /></Field>
-          <Field label="Тематика"><input value={s.theme} onChange={set("theme")} /></Field>
-          <Field label="Ниша"><input value={s.niche} onChange={set("niche")} /></Field>
+          <Field label="Название проекта *" hint="Для вас, в VK не публикуется"><input required value={s.name} onChange={set("name")} /></Field>
+          <Field label="Название бизнеса *" hint="Как бизнес называется для клиентов"><input required value={s.business_name} onChange={set("business_name")} /></Field>
+          <Field label="Тематика" hint="Например: кофейня, ремонт квартир"><input value={s.theme} onChange={set("theme")} /></Field>
+          <Field label="Ниша" hint="Уточнение: specialty-кофе навынос"><input value={s.niche} onChange={set("niche")} /></Field>
           <Field label="Город / регион"><input value={s.city} onChange={set("city")} /></Field>
           <Field label="Сайт"><input value={s.website} onChange={set("website")} placeholder="https://" /></Field>
         </div>
-        <Field label="Целевая аудитория"><textarea value={s.target_audience} onChange={set("target_audience")} /></Field>
-        <Field label="Описание продукта"><textarea value={s.product_description} onChange={set("product_description")} /></Field>
-        <Field label="Преимущества"><textarea value={s.advantages} onChange={set("advantages")} /></Field>
-        <Field label="Контакты"><input value={s.contacts} onChange={set("contacts")} /></Field>
+        <Field label="Кто ваши клиенты" hint="Возраст, интересы, проблемы, которые вы решаете"><textarea value={s.target_audience} onChange={set("target_audience")} /></Field>
+        <Field label="Что вы продаёте" hint="Товары/услуги, цены, условия"><textarea value={s.product_description} onChange={set("product_description")} /></Field>
+        <Field label="Чем вы лучше конкурентов"><textarea value={s.advantages} onChange={set("advantages")} /></Field>
+        <Field label="Контакты" hint="Телефон, адрес, мессенджеры — AI будет добавлять их в призывы"><input value={s.contacts} onChange={set("contacts")} /></Field>
       </div>
       <div className="card">
-        <h2>Цель и контент</h2>
+        <h2>📝 Посты</h2>
         <div className="form-grid">
-          <Field label="Основная цель"><select value={s.goal} onChange={set("goal")}>{Object.entries(GOALS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
-          <Field label="Постов в день (если задано — приоритетнее недели)"><input type="number" min={1} max={20} value={s.posts_per_day} onChange={set("posts_per_day")} /></Field>
+          <Field label="Главная цель сообщества"><select value={s.goal} onChange={set("goal")}>{Object.entries(GOALS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
+          <Field label="Постов в день" hint="Если заполнено — важнее, чем «в неделю»"><input type="number" min={1} max={20} value={s.posts_per_day} onChange={set("posts_per_day")} /></Field>
           <Field label="Постов в неделю"><input type="number" min={1} max={100} value={s.posts_per_week} onChange={set("posts_per_week")} /></Field>
-          <Field label="Tone of Voice"><select value={s.tone} onChange={set("tone")}>{Object.entries(TONES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
-          <Field label="Время публикаций (HH:MM, через запятую)"><input value={s.posting_times} onChange={set("posting_times")} /></Field>
-          <Field label="Часовой пояс"><input value={s.timezone} onChange={set("timezone")} /></Field>
-          <Field label="Формат изображений"><select value={s.image_format} onChange={set("image_format")}><option value="square">Квадрат</option><option value="vertical">Вертикальный</option><option value="horizontal">Горизонтальный</option></select></Field>
-          <Field label="VK-аккаунт"><select value={s.vk_account_id} onChange={set("vk_account_id")}><option value="">— не выбран —</option>{(accounts || []).map((a) => <option key={a.id} value={a.id}>{a.name} ({a.status})</option>)}</select></Field>
+          <Field label="Стиль текстов"><select value={s.tone} onChange={set("tone")}>{Object.entries(TONES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
+          <Field label="Время публикаций" hint="Через запятую, например: 10:00, 19:00"><input value={s.posting_times} onChange={set("posting_times")} /></Field>
+          <Field label="Часовой пояс" hint="Europe/Moscow, Asia/Yekaterinburg…"><input value={s.timezone} onChange={set("timezone")} /></Field>
+          <Field label="Формат картинок"><select value={s.image_format} onChange={set("image_format")}><option value="square">Квадрат</option><option value="vertical">Вертикальный</option><option value="horizontal">Горизонтальный</option></select></Field>
+          <Field label="Аккаунт VK" hint="От его имени публикуются посты"><select value={s.vk_account_id} onChange={set("vk_account_id")}><option value="">— не выбран —</option>{(accounts || []).map((a) => <option key={a.id} value={a.id}>{a.name} ({a.status})</option>)}</select></Field>
         </div>
-        {s.tone === "custom" && <Field label="Пользовательский prompt для Tone of Voice"><textarea value={s.custom_tone_prompt} onChange={set("custom_tone_prompt")} /></Field>}
+        {s.tone === "custom" && <Field label="Опишите стиль своими словами" hint="Например: на «ты», с юмором, без канцелярита"><textarea value={s.custom_tone_prompt} onChange={set("custom_tone_prompt")} /></Field>}
         <div className="row">
-          <label className="row"><input type="checkbox" style={{ width: "auto" }} checked={s.images_enabled} onChange={set("images_enabled")} /> Генерировать изображения</label>
-          <label className="row"><input type="checkbox" style={{ width: "auto" }} checked={s.autopilot} onChange={set("autopilot")} /> Автопилот (заполнение очереди)</label>
-          <label className="row"><input type="checkbox" style={{ width: "auto" }} checked={s.auto_approve} onChange={set("auto_approve")} /> Публиковать без ручного одобрения</label>
+          <label className="check"><input type="checkbox" checked={s.images_enabled} onChange={set("images_enabled")} /> Рисовать картинки к постам</label>
+          <label className="check"><input type="checkbox" checked={s.autopilot} onChange={set("autopilot")} /> Автопилот: писать посты самому</label>
+          <label className="check"><input type="checkbox" checked={s.auto_approve} onChange={set("auto_approve")} /> Публиковать без моей проверки</label>
         </div>
       </div>
       <div className="card">
-        <h2>Комментарии и сообщения</h2>
+        <h2>💬 Комментарии и сообщения</h2>
         <div className="form-grid">
-          <Field label="AUTO_REPLY"><select value={s.auto_reply_mode} onChange={set("auto_reply_mode")}>
-            <option value="OFF">OFF — AI только предлагает</option><option value="APPROVAL">APPROVAL — оператор подтверждает</option><option value="AUTO">AUTO — разрешённые типы отправляются сами</option>
+          <Field label="Как отвечать"><select value={s.auto_reply_mode} onChange={set("auto_reply_mode")}>
+            <option value="OFF">Только подсказка — AI предлагает ответ, отвечаю сам</option><option value="APPROVAL">С подтверждением — AI готовит, я нажимаю «Отправить»</option><option value="AUTO">Автоматически — AI отвечает сам на выбранные типы</option>
           </select></Field>
-          <Field label="Типы для AUTO">
-            <div className="row">{["QUESTION", "LEAD", "OTHER"].map((t) => <label key={t} className="row"><input type="checkbox" style={{ width: "auto" }} checked={s.auto_reply_types.includes(t)} onChange={() => toggleType(t)} />{t}</label>)}</div>
+          <Field label="На что AI отвечает сам (в автоматическом режиме)">
+            <div className="row">{["QUESTION", "LEAD", "OTHER"].map((t) => <label key={t} className="check"><input type="checkbox" checked={s.auto_reply_types.includes(t)} onChange={() => toggleType(t)} />{({ QUESTION: "Вопросы", LEAD: "Заявки", OTHER: "Прочее" } as Record<string, string>)[t]}</label>)}</div>
           </Field>
         </div>
-        <p className="small muted">NEGATIVE и SPAM никогда не отвечаются автоматически. Для LEAD AI только собирает базовую информацию, создаёт лид и уведомляет оператора.</p>
+        <p className="small muted">На негатив и спам AI никогда не отвечает сам. По заявкам AI только уточняет контакты, создаёт заявку и уведомляет вас.</p>
       </div>
-      <button className="primary" disabled={busy}>{busy ? "Сохранение…" : submitLabel}</button>
+      <button className="primary big" disabled={busy}>{busy ? "Сохранение…" : submitLabel}</button>
     </form>
   );
 }

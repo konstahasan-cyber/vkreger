@@ -10,14 +10,14 @@ from app.models.proxy import Proxy
 from app.models.vk_account import VKAccount
 from app.proxy.pool import bind_proxy, replace_account_proxy
 from app.services.audit import syslog
-from app.vk.errors import ProxyUnavailableError, VKAPIError, VKError
+from app.vk.errors import ProxyUnavailableError, VKAPIError, VKError, describe_vk_error
 from app.vk.factory import client_for_account
 
 
 def get_account(db: Session, account_id: int) -> VKAccount:
     account = db.get(VKAccount, account_id)
     if account is None:
-        raise NotFoundError(f"VK account #{account_id} not found")
+        raise NotFoundError(f"Аккаунт VK #{account_id} не найден")
     return account
 
 
@@ -30,7 +30,7 @@ def create_account(db: Session, *, name: str, access_token: str, proxy_id: int |
     if proxy_id is not None:
         proxy = db.get(Proxy, proxy_id)
         if proxy is None:
-            raise NotFoundError(f"proxy #{proxy_id} not found")
+            raise NotFoundError(f"Прокси #{proxy_id} не найден")
         bind_proxy(db, account, proxy)
     if verify:
         check_account(db, account)
@@ -74,12 +74,12 @@ def check_account(db: Session, account: VKAccount, *, refresh_groups: bool = Tru
         account.last_error = None
     except VKAPIError as exc:
         account.status = AccountStatus.INVALID.value if exc.is_auth else AccountStatus.ERROR.value
-        account.last_error = f"{exc.code}: {exc.message}"
+        account.last_error = describe_vk_error(exc)
         syslog(db, LogLevel.WARNING, "vk_account", f"Account #{account.id} check failed: {account.last_error}",
                context={"account_id": account.id})
     except VKError as exc:
         account.status = AccountStatus.ERROR.value
-        account.last_error = str(exc)
+        account.last_error = describe_vk_error(exc)
         syslog(db, LogLevel.WARNING, "vk_account", f"Account #{account.id} check failed: {exc}",
                context={"account_id": account.id})
     db.flush()
@@ -106,7 +106,7 @@ def set_account_proxy(db: Session, account: VKAccount, proxy_id: int | None) -> 
     if proxy_id is not None:
         proxy = db.get(Proxy, proxy_id)
         if proxy is None:
-            raise NotFoundError(f"proxy #{proxy_id} not found")
+            raise NotFoundError(f"Прокси #{proxy_id} не найден")
     bind_proxy(db, account, proxy)
     return account
 

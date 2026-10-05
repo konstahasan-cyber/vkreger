@@ -14,6 +14,25 @@ interface Agg {
   leads_count: number | null;
 }
 
+interface ReviewResult { skipped?: string; strategy_changed?: boolean; review?: { summary?: string; insights?: string[]; recommendations?: string[]; repeated_topics?: string[]; new_ideas?: { rubric_code: string; topic: string }[] } }
+
+function Review({ result }: { result: ReviewResult }) {
+  const r = result.review;
+  if (!r) return <div className="alert info">💡 <div>Ревизия пропущена: {result.skipped}</div></div>;
+  const list = (title: string, items?: string[]) => items && items.length > 0 && <><h3>{title}</h3><ul className="small" style={{ marginTop: 0 }}>{items.map((i) => <li key={i}>{i}</li>)}</ul></>;
+  return (
+    <div className="card step-card">
+      <h2>🧭 Вывод AI-аналитика</h2>
+      {r.summary && <p>{r.summary}</p>}
+      <p className="small muted">{result.strategy_changed ? "Стратегия скорректирована: веса рубрик и время публикаций обновлены." : "Стратегия оставлена без изменений — существенных отличий не найдено."}</p>
+      <div className="grid-2">
+        <div>{list("Что заметил", r.insights)}{list("Повторяющиеся темы", r.repeated_topics)}</div>
+        <div>{list("Рекомендации", r.recommendations)}{list("Новые идеи (добавлены в контент-план)", r.new_ideas?.map((i) => i.topic))}</div>
+      </div>
+    </div>
+  );
+}
+
 export default function AnalyticsPage() {
   const [projectId, setProjectId, ready] = useQueryParam("project_id");
   const { data: overview } = useLoad<Overview[]>("/analytics/overview");
@@ -25,21 +44,21 @@ export default function AnalyticsPage() {
   return (
     <>
       <div className="topbar">
-        <h1>Аналитика</h1>
+        <div><h1>Аналитика</h1><div className="page-sub">Просмотры, лайки и вовлечённость по опубликованным постам.</div></div>
         <div className="row">
           <ProjectSelect value={projectId} onChange={setProjectId} />
           <button onClick={() => action.run(() => api("/analytics/collect", { method: "POST" }), "Сбор статистики из VK запущен")}>Собрать статистику</button>
-          {projectId && <button onClick={async () => { const j = await action.run(() => api<Job>(`/projects/${projectId}/analyst-review`, { method: "POST" })); if (j) start(j); }}>AI-ревизия стратегии</button>}
+          {projectId && <button onClick={async () => { const j = await action.run(() => api<Job>(`/projects/${projectId}/analyst-review`, { method: "POST" })); if (j) start(j); }}>🧭 AI-ревизия стратегии</button>}
         </div>
       </div>
       <Alerts error={action.error} message={action.message} />
       <JobStatus job={job} />
-      {job?.status === "success" && <div className="card"><h3>Вывод ANALYST</h3><pre className="json">{JSON.stringify((job.result as { review?: unknown }).review ?? job.result, null, 2)}</pre></div>}
+      {job?.status === "success" && <Review result={job.result as ReviewResult} />}
       {!projectId && (
         <div className="card table-wrap">
           <h2>Проекты за 30 дней</h2>
           <table>
-            <thead><tr><th>Проект</th><th>Постов</th><th>Просмотры</th><th>Ср. просмотры</th><th>Ср. ER</th><th>Клики</th><th>Лиды</th><th>Лучшая рубрика</th></tr></thead>
+            <thead><tr><th>Проект</th><th>Постов</th><th>Просмотры</th><th>Ср. просмотры</th><th>Вовлечённость</th><th>Клики</th><th>Заявки</th><th>Лучшая рубрика</th></tr></thead>
             <tbody>{(overview || []).map((o) => (
               <tr key={o.project_id}><td><a style={{ cursor: "pointer" }} onClick={() => setProjectId(String(o.project_id))}>{o.name}</a></td><td>{o.posts}</td><td>{o.views}</td><td>{o.avg_views}</td><td>{o.avg_engagement_rate}%</td><td>{o.clicks}</td><td>{o.leads}</td><td>{o.best_category || "—"}</td></tr>
             ))}</tbody>
@@ -51,13 +70,13 @@ export default function AnalyticsPage() {
           <div className="grid">
             <div className="stat"><div className="label">Постов (последние 30)</div><div className="value">{agg.posts_count}</div></div>
             <div className="stat"><div className="label">Ср. просмотры</div><div className="value">{agg.avg_views}</div></div>
-            <div className="stat"><div className="label">Ср. engagement</div><div className="value">{agg.avg_engagement_rate}%</div></div>
+            <div className="stat"><div className="label">Вовлечённость</div><div className="value">{agg.avg_engagement_rate}%</div></div>
             <div className="stat"><div className="label">Клики</div><div className="value">{agg.total_clicks}</div></div>
-            <div className="stat"><div className="label">Лиды</div><div className="value">{agg.leads_count ?? 0}</div></div>
+            <div className="stat"><div className="label">Заявки</div><div className="value">{agg.leads_count ?? 0}</div></div>
           </div>
           <div className="grid-2" style={{ marginTop: 16 }}>
             <div className="card">
-              <h3>Рубрики (ER)</h3>
+              <h3>Какие рубрики заходят лучше</h3>
               {agg.by_category.map((c) => (
                 <div key={c.category} style={{ marginBottom: 8 }}>
                   <div className="row small"><b>{c.category}</b><span className="muted">{c.posts} пост., ср. просмотры {c.avg_views}</span><span style={{ marginLeft: "auto" }}>{c.engagement_rate}%</span></div>
@@ -66,8 +85,8 @@ export default function AnalyticsPage() {
               ))}
             </div>
             <div className="card">
-              <h3>Лучшее время</h3>
-              <table><thead><tr><th>Час</th><th>Постов</th><th>ER</th><th>Просмотры</th></tr></thead>
+              <h3>Лучшее время публикации</h3>
+              <table><thead><tr><th>Час</th><th>Постов</th><th>Вовлечённость</th><th>Просмотры</th></tr></thead>
                 <tbody>{agg.best_hours.map((h) => <tr key={h.hour}><td>{h.hour}:00</td><td>{h.posts}</td><td>{h.engagement_rate}%</td><td>{h.avg_views}</td></tr>)}</tbody></table>
             </div>
             <div className="card">

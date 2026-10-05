@@ -4,7 +4,31 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { fmtDate } from "@/lib/format";
 import type { Account, Proxy } from "@/lib/types";
-import { Alerts, Badge, Field, Modal, useAction, useLoad } from "@/components/ui";
+import { Alerts, Badge, Empty, Field, Hint, Modal, useAction, useLoad } from "@/components/ui";
+
+function oauthLink(appId: string, offline: boolean) {
+  const scope = ["wall", "groups", "photos", "stats", ...(offline ? ["offline"] : [])].join(",");
+  return `https://oauth.vk.com/authorize?client_id=${appId}&display=page&redirect_uri=https://oauth.vk.com/blank.html&scope=${scope}&response_type=token&v=5.199`;
+}
+
+function TokenGuide() {
+  const [appId, setAppId] = useState("");
+  return (
+    <details className="card soft" style={{ marginBottom: 14 }}>
+      <summary><b>❓ Где взять токен</b></summary>
+      <ol style={{ paddingLeft: 18, marginBottom: 0 }}>
+        <li>На <a href="https://dev.vk.com" target="_blank" rel="noreferrer">dev.vk.com</a> → «Приложения» создайте своё приложение (лучше тип <b>Standalone</b>, если VK его предлагает — тогда работает автосоздание сообществ и бессрочный токен).</li>
+        <li>Скопируйте его <b>ID</b> (число) и вставьте сюда:
+          <input value={appId} onChange={(e) => setAppId(e.target.value.replace(/\D/g, ""))} placeholder="ID приложения, например 54805043" style={{ margin: "6px 0", maxWidth: 320, display: "block" }} />
+          {appId && <div className="row"><a href={oauthLink(appId, true)} target="_blank" rel="noreferrer"><button className="small primary">Получить бессрочный токен</button></a><a href={oauthLink(appId, false)} target="_blank" rel="noreferrer"><button className="small">Если ошибка «invalid scope» — этот вариант</button></a></div>}
+        </li>
+        <li>Нажмите «Разрешить». В адресной строке открывшейся страницы скопируйте всё между <code>access_token=</code> и <code>&amp;expires_in</code>.</li>
+        <li>Вставьте токен в форму. <b>Не берите «Защищённый» или «Сервисный» ключ</b> со страницы приложения — они не подходят.</li>
+      </ol>
+      <p className="small muted" style={{ marginTop: 8 }}>Если в адресе <code>expires_in</code> не 0 — токен временный, и через это время его нужно будет заменить кнопкой «Заменить токен».</p>
+    </details>
+  );
+}
 
 export default function AccountsPage() {
   const { data: accounts, reload, error } = useLoad<Account[]>("/accounts");
@@ -12,92 +36,96 @@ export default function AccountsPage() {
   const action = useAction();
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: "", access_token: "", proxy_id: "", auto_replace_proxy: true });
+  const [replaceFor, setReplaceFor] = useState<Account | null>(null);
+  const [newToken, setNewToken] = useState("");
   const [groupsOf, setGroupsOf] = useState<Account | null>(null);
 
   const freeProxies = (proxies || []).filter((p) => !p.account_id && p.status !== "dead");
+  const act = async (fn: () => Promise<unknown>, ok: string) => { await action.run(fn, ok); reload(); reloadProxies(); };
 
   async function add() {
-    const created = await action.run(() => api<Account>("/accounts", {
-      method: "POST",
-      json: { ...form, proxy_id: form.proxy_id ? Number(form.proxy_id) : null },
-    }), "Аккаунт добавлен");
+    const created = await action.run(() => api<Account>("/accounts", { method: "POST", json: { ...form, proxy_id: form.proxy_id ? Number(form.proxy_id) : null } }));
     if (created) {
       setShowAdd(false);
       setForm({ name: "", access_token: "", proxy_id: "", auto_replace_proxy: true });
-      reload();
-      reloadProxies();
+      action.setMessage(created.status === "active" ? `Аккаунт «${created.name}» подключён` : `Аккаунт добавлен, но токен не работает: ${created.last_error}`);
+      reload(); reloadProxies();
     }
   }
 
-  const act = async (fn: () => Promise<unknown>, ok: string) => { await action.run(fn, ok); reload(); reloadProxies(); };
-
   return (
     <>
-      <div className="topbar"><h1>VK-аккаунты</h1><button className="primary" onClick={() => setShowAdd(true)}>+ Добавить аккаунт</button></div>
-      <Alerts error={error || action.error} message={action.message} />
-      <div className="card small muted">
-        Импортируйте токены своих аккаунтов: user access token приложения VK (VK ID / OAuth) с правами wall, groups, photos, stats, offline.
-        Токены хранятся в БД в зашифрованном виде и больше не показываются.
+      <div className="topbar">
+        <div><h1>Аккаунты VK</h1><div className="page-sub">От имени этих аккаунтов публикуются посты. Токены хранятся зашифрованными.</div></div>
+        <button className="primary big" onClick={() => setShowAdd(true)}>+ Добавить аккаунт</button>
       </div>
-      <div className="card table-wrap">
-        <table>
-          <thead><tr><th>#</th><th>Название</th><th>VK user</th><th>Статус</th><th>Proxy</th><th>Сообщества</th><th>Проверен</th><th>Ошибка</th><th /></tr></thead>
-          <tbody>
-            {(accounts || []).map((a) => (
-              <tr key={a.id}>
-                <td>{a.id}</td>
-                <td><b>{a.name}</b><div className="small muted">{[a.info.first_name, a.info.last_name].filter(Boolean).join(" ")}</div></td>
-                <td>{a.vk_user_id ? <a href={`https://vk.com/id${a.vk_user_id}`} target="_blank" rel="noreferrer">id{a.vk_user_id}</a> : "—"}</td>
-                <td><Badge value={a.status} /></td>
-                <td>
-                  <select value={a.proxy_id ?? ""} onChange={(e) => act(() => api(`/accounts/${a.id}/proxy`, { method: "PUT", json: { proxy_id: e.target.value ? Number(e.target.value) : null } }), "Proxy обновлён")}>
-                    <option value="">Без proxy</option>
-                    {a.proxy_id && <option value={a.proxy_id}>{a.proxy_display} ({a.proxy_status})</option>}
-                    {freeProxies.map((p) => <option key={p.id} value={p.id}>{p.scheme}://{p.host}:{p.port} {p.country_code || ""}</option>)}
-                  </select>
-                  <label className="small row" style={{ marginTop: 4 }}>
-                    <input type="checkbox" style={{ width: "auto" }} checked={a.auto_replace_proxy}
-                      onChange={(e) => act(() => api(`/accounts/${a.id}`, { method: "PATCH", json: { auto_replace_proxy: e.target.checked } }), "Сохранено")} />
-                    автозамена умершего proxy
-                  </label>
-                </td>
-                <td><button className="small" onClick={() => setGroupsOf(a)}>{a.groups_cache.length} шт.</button></td>
-                <td className="small">{fmtDate(a.last_checked_at)}</td>
-                <td className="small" style={{ maxWidth: 220 }}>{a.last_error || ""}</td>
-                <td>
-                  <div className="row">
-                    <button className="small" disabled={action.busy} onClick={() => act(() => api(`/accounts/${a.id}/check`, { method: "POST" }), "Проверено")}>Проверить</button>
-                    <button className="small" disabled={action.busy} onClick={() => act(() => api(`/accounts/${a.id}/refresh`, { method: "POST" }), "Данные и сообщества обновлены")}>Обновить</button>
-                    <button className="small danger" onClick={() => confirm(`Удалить аккаунт ${a.name}?`) && act(() => api(`/accounts/${a.id}`, { method: "DELETE" }), "Удалён")}>Удалить</button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {accounts && accounts.length === 0 && <p className="muted">Аккаунтов пока нет.</p>}
+      <Alerts error={error || action.error} message={action.message} />
+      {accounts && accounts.length === 0 && (
+        <div className="card"><Empty icon="👤" title="Аккаунтов пока нет"><button className="primary" onClick={() => setShowAdd(true)}>+ Добавить аккаунт</button></Empty></div>
+      )}
+      <div className="grid-3">
+        {(accounts || []).map((a) => (
+          <div key={a.id} className="card" style={{ marginBottom: 0 }}>
+            <div className="row between">
+              <div className="row">
+                {a.info.photo ? <img src={a.info.photo} alt="" style={{ width: 40, height: 40, borderRadius: "50%" }} /> : <span style={{ fontSize: 28 }}>👤</span>}
+                <div><b>{a.name}</b><div className="small muted">{[a.info.first_name, a.info.last_name].filter(Boolean).join(" ") || "—"}{a.vk_user_id && <> · <a href={`https://vk.com/id${a.vk_user_id}`} target="_blank" rel="noreferrer">id{a.vk_user_id}</a></>}</div></div>
+              </div>
+              <Badge value={a.status} />
+            </div>
+            {a.status !== "active" && a.last_error && <div className="alert err small" style={{ marginTop: 10 }}>⚠️ <div>{a.last_error}<br /><b>Решение:</b> получите новый токен и нажмите «Заменить токен».</div></div>}
+            <div className="meta-line" style={{ margin: "10px 0" }}>
+              <span>👥 <a style={{ cursor: "pointer" }} onClick={() => setGroupsOf(a)}>сообществ: {a.groups_cache.length}</a></span>
+              <span>🕐 проверен {fmtDate(a.last_checked_at)}</span>
+            </div>
+            <Field label="Прокси">
+              <select value={a.proxy_id ?? ""} onChange={(e) => act(() => api(`/accounts/${a.id}/proxy`, { method: "PUT", json: { proxy_id: e.target.value ? Number(e.target.value) : null } }), "Прокси обновлён")}>
+                <option value="">Без прокси (напрямую)</option>
+                {a.proxy_id && <option value={a.proxy_id}>{a.proxy_display} — {a.proxy_status}</option>}
+                {freeProxies.map((p) => <option key={p.id} value={p.id}>{p.host}:{p.port} {p.country_code || ""}</option>)}
+              </select>
+            </Field>
+            <label className="check small" style={{ marginBottom: 12 }}><input type="checkbox" checked={a.auto_replace_proxy} onChange={(e) => act(() => api(`/accounts/${a.id}`, { method: "PATCH", json: { auto_replace_proxy: e.target.checked } }), "Сохранено")} /> менять прокси, если он перестал работать</label>
+            <div className="row">
+              <button className="small" disabled={action.busy} onClick={() => act(() => api(`/accounts/${a.id}/refresh`, { method: "POST" }), "Проверено, список сообществ обновлён")}>🔄 Проверить</button>
+              <button className={`small ${a.status !== "active" ? "primary" : ""}`} onClick={() => { setReplaceFor(a); setNewToken(""); }}>🔑 Заменить токен</button>
+              <button className="small ghost" onClick={() => confirm(`Удалить аккаунт «${a.name}»? Проекты, привязанные к нему, останутся без аккаунта.`) && act(() => api(`/accounts/${a.id}`, { method: "DELETE" }), "Удалён")}>🗑</button>
+            </div>
+          </div>
+        ))}
       </div>
 
       {showAdd && (
-        <Modal title="Новый VK-аккаунт" onClose={() => setShowAdd(false)}>
+        <Modal title="Новый аккаунт VK" onClose={() => setShowAdd(false)}>
+          <TokenGuide />
           <Alerts error={action.error} />
-          <Field label="Название"><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
-          <Field label="Access token"><textarea value={form.access_token} onChange={(e) => setForm({ ...form, access_token: e.target.value })} placeholder="vk1.a...." /></Field>
-          <Field label="Proxy (необязательно)">
+          <Field label="Название (для вас)"><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Например: Основной" /></Field>
+          <Field label="Токен"><textarea value={form.access_token} onChange={(e) => setForm({ ...form, access_token: e.target.value })} placeholder="vk1.a.…" /></Field>
+          <Field label="Прокси (необязательно)">
             <select value={form.proxy_id} onChange={(e) => setForm({ ...form, proxy_id: e.target.value })}>
-              <option value="">Без proxy</option>
-              {freeProxies.map((p) => <option key={p.id} value={p.id}>{p.scheme}://{p.host}:{p.port} — {p.status} {p.country || ""}</option>)}
+              <option value="">Без прокси</option>
+              {freeProxies.map((p) => <option key={p.id} value={p.id}>{p.host}:{p.port} — {p.status} {p.country || ""}</option>)}
             </select>
           </Field>
-          <label className="row"><input type="checkbox" style={{ width: "auto" }} checked={form.auto_replace_proxy} onChange={(e) => setForm({ ...form, auto_replace_proxy: e.target.checked })} /> Автоматически заменять умерший proxy</label>
-          <div className="row" style={{ marginTop: 12 }}><button className="primary" disabled={action.busy || !form.name || !form.access_token} onClick={add}>{action.busy ? "Проверка…" : "Добавить и проверить"}</button></div>
+          <button className="primary big" disabled={action.busy || !form.name || !form.access_token} onClick={add}>{action.busy ? "Проверяем…" : "Добавить и проверить"}</button>
+        </Modal>
+      )}
+      {replaceFor && (
+        <Modal title={`Новый токен для «${replaceFor.name}»`} onClose={() => setReplaceFor(null)}>
+          <TokenGuide />
+          <Alerts error={action.error} />
+          <Field label="Новый токен" hint="Проекты и сообщества останутся привязаны к этому аккаунту."><textarea value={newToken} onChange={(e) => setNewToken(e.target.value)} placeholder="vk1.a.…" /></Field>
+          <button className="primary big" disabled={action.busy || newToken.trim().length < 10} onClick={async () => {
+            const u = await action.run(() => api<Account>(`/accounts/${replaceFor.id}`, { method: "PATCH", json: { access_token: newToken.trim() } }));
+            if (u) { setReplaceFor(null); action.setMessage(u.status === "active" ? "Токен обновлён, аккаунт работает" : `Токен сохранён, но не работает: ${u.last_error}`); reload(); }
+          }}>{action.busy ? "Проверяем…" : "Сохранить и проверить"}</button>
         </Modal>
       )}
       {groupsOf && (
-        <Modal title={`Сообщества аккаунта ${groupsOf.name}`} onClose={() => setGroupsOf(null)}>
-          <table><thead><tr><th>ID</th><th>Название</th><th>Участники</th></tr></thead>
-            <tbody>{groupsOf.groups_cache.map((g) => <tr key={g.id}><td>{g.id}</td><td><a href={`https://vk.com/${g.screen_name || "club" + g.id}`} target="_blank" rel="noreferrer">{g.name}</a></td><td>{g.members_count ?? "—"}</td></tr>)}</tbody>
-          </table>
+        <Modal title={`Сообщества, где «${groupsOf.name}» — администратор`} onClose={() => setGroupsOf(null)}>
+          {groupsOf.groups_cache.length === 0 ? <Hint>Список пуст. Создайте группу в VK и нажмите «Проверить» у аккаунта.</Hint> : (
+            <table><tbody>{groupsOf.groups_cache.map((g) => <tr key={g.id}><td><a href={`https://vk.com/${g.screen_name || "club" + g.id}`} target="_blank" rel="noreferrer">{g.name}</a></td><td className="muted small">ID {g.id}</td><td className="small">{g.members_count ?? "—"} участн.</td></tr>)}</tbody></table>
+          )}
         </Modal>
       )}
     </>

@@ -180,13 +180,13 @@ def can_reply(community: Community, item: InboxItem) -> bool:
 
 def send_reply(db: Session, item: InboxItem, text: str, *, user_id: int | None) -> InboxItem:
     if not text or not text.strip():
-        raise ValidationAppError("Reply text is empty")
+        raise ValidationAppError("Текст ответа пустой")
     if item.reply_status == ReplyStatus.SENT.value:
-        raise ValidationAppError("Reply already sent")
+        raise ValidationAppError("Ответ уже отправлен")
     community = db.get(Community, item.community_id)
     if not can_reply(community, item):
-        raise ValidationAppError("Sending messages requires a community access token"
-                                 if item.kind == InboxKind.MESSAGE.value else "Comment has no post id")
+        raise ValidationAppError("Чтобы отвечать на сообщения, добавьте ключ доступа сообщества"
+                                 if item.kind == InboxKind.MESSAGE.value else "У комментария нет поста")
     try:
         if item.kind == InboxKind.COMMENT.value:
             with client_for_community(community) as client:
@@ -194,7 +194,7 @@ def send_reply(db: Session, item: InboxItem, text: str, *, user_id: int | None) 
                                                          reply_to_comment=item.vk_item_id)
         else:
             if not community.community_token:
-                raise ValidationAppError("Sending messages requires a community access token")
+                raise ValidationAppError("Чтобы отвечать на сообщения, добавьте ключ доступа сообщества")
             with client_for_community(community) as client:
                 item.reply_vk_id = client.send_message(int(item.peer_id or item.from_id), text,
                                                        group_id=community.vk_group_id)

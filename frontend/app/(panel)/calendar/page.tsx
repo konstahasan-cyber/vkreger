@@ -34,7 +34,7 @@ export default function CalendarPage() {
   return (
     <>
       <div className="topbar">
-        <h1>Календарь: {month.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })}</h1>
+        <div><h1>Календарь</h1><div className="page-sub" style={{ textTransform: "capitalize" }}>{month.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })}</div></div>
         <div className="row">
           <ProjectSelect value={projectId} onChange={setProjectId} />
           <button onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>←</button>

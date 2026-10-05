@@ -28,12 +28,12 @@ export default function LoginPage() {
   return (
     <div className="login-page">
       <form className="card" onSubmit={submit}>
-        <h1>VKreger</h1>
+        <div className="brand" style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 6 }}><span style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg, var(--primary), var(--primary-2))", display: "grid", placeItems: "center", color: "#fff" }}>✦</span><h1 style={{ margin: 0 }}>VKreger</h1></div>
         <p className="muted">Вход в панель управления</p>
         {error && <div className="error-box">{error}</div>}
         <div className="field"><label>Email</label><input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required /></div>
         <div className="field"><label>Пароль</label><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></div>
-        <button className="primary" disabled={busy} style={{ width: "100%" }}>{busy ? "Вход…" : "Войти"}</button>
+        <button className="primary big" disabled={busy} style={{ width: "100%", justifyContent: "center" }}>{busy ? "Вход…" : "Войти"}</button>
       </form>
     </div>
   );

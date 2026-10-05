@@ -23,7 +23,7 @@ def login(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Ses
     if user is None or not user.is_active or not verify_password(form.password, user.password_hash):
         audit(db, None, "auth.login_failed", "user", None, {"email": form.username}, client_ip(request))
         db.commit()
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect email or password")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Неверный email или пароль")
     audit(db, user.id, "auth.login", "user", user.id, ip=client_ip(request))
     db.commit()
     return TokenOut(access_token=create_access_token(user.id, {"role": user.role}))
@@ -43,7 +43,7 @@ def list_users(db: Session = Depends(get_db), _: User = Depends(require(Permissi
 def add_user(body: UserCreate, request: Request, db: Session = Depends(get_db),
              current: User = Depends(require(Permission.MANAGE_USERS))) -> User:
     if db.execute(select(User).where(User.email == body.email.lower().strip())).scalar_one_or_none():
-        raise HTTPException(409, "User already exists")
+        raise HTTPException(409, "Такой пользователь уже есть")
     user = create_user(db, body.email, body.password, body.role, body.full_name)
     audit(db, current.id, "user.create", "user", user.id, {"email": user.email, "role": user.role}, client_ip(request))
     db.commit()
@@ -55,7 +55,7 @@ def update_user(user_id: int, body: UserUpdate, request: Request, db: Session = 
                 current: User = Depends(require(Permission.MANAGE_USERS))) -> User:
     user = db.get(User, user_id)
     if user is None:
-        raise HTTPException(404, "User not found")
+        raise HTTPException(404, "Пользователь не найден")
     changes = body.model_dump(exclude_unset=True)
     if "password" in changes:
         user.password_hash = hash_password(changes.pop("password"))

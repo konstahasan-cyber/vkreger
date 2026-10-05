@@ -74,7 +74,7 @@ def generate_post(
         topic = plan_item.topic
         angle = plan_item.angle
     if not topic:
-        raise ValidationAppError("No topic: generate a content plan first or pass a topic")
+        raise ValidationAppError("Нет темы: составьте контент-план или укажите тему")
     rubric_code = rubric_code or "educational"
     rubric = _rubric(db, project.id, rubric_code)
 
@@ -171,8 +171,13 @@ def generate_image_for_post(db: Session, post: Post, *, ai: AIService | None = N
         return False
     fmt = fmt or (ImageFormat(post.image_format) if post.image_format != ImageFormat.NONE.value else ImageFormat.SQUARE)
     ai.guard.check(post.project_id, automatic=automatic, force=force)
+    from app.services.brand_service import brand_image_suffix
+
+    project = db.get(Project, post.project_id)
+    suffix = brand_image_suffix(project) if project else ""
+    prompt = f"{post.image_prompt}. Brand style: {suffix}" if suffix else post.image_prompt
     try:
-        image = provider.generate(post.image_prompt, fmt)
+        image = provider.generate(prompt, fmt)
     except ImageGenerationError as exc:
         syslog(db, LogLevel.WARNING, "images", f"Image for post #{post.id} failed: {exc}", project_id=post.project_id)
         return False

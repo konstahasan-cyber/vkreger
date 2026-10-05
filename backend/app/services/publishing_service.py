@@ -98,7 +98,7 @@ def post_db(post: Post) -> Session:
 def _do_publish(db: Session, post: Post) -> None:
     community = post.community
     if community is None:
-        raise ValidationAppError(f"Post #{post.id} has no community")
+        raise ValidationAppError(f"У поста #{post.id} нет сообщества")
     with client_for_community(community, prefer_community_token=False) as client:
         _upload_image(client, post)
         db.flush()
@@ -145,7 +145,7 @@ def publish_post_now(db: Session, post: Post) -> Post:
     if post.status == PostStatus.PUBLISHED.value:
         return post
     if not claim_post(db, post.id):
-        raise ValidationAppError(f"Post #{post.id} cannot be published from status {post.status}")
+        raise ValidationAppError(f"Пост #{post.id} нельзя опубликовать из статуса «{post.status}»")
     db.refresh(post)
     return publish_claimed(db, post)
 
@@ -194,15 +194,15 @@ def recover_stuck(db: Session) -> list[int]:
 
 def schedule_post(db: Session, post: Post, when: datetime | None) -> Post:
     if post.status in (PostStatus.PUBLISHED.value, PostStatus.PUBLISHING.value):
-        raise ValidationAppError(f"Post #{post.id} is already {post.status}")
+        raise ValidationAppError(f"Пост #{post.id} уже в статусе «{post.status}»")
     if post.community_id is None:
-        raise ValidationAppError("Connect a community to the project before scheduling")
+        raise ValidationAppError("Сначала подключите сообщество к проекту")
     if when is None:
         from app.content.slots import free_slots
 
         slots = free_slots(db, post_project(db, post), 1)
         if not slots:
-            raise ValidationAppError("No free publication slots in horizon")
+            raise ValidationAppError("Нет свободного времени для публикации в ближайшие дни")
         when = slots[0]
     if when.tzinfo is None:
         when = when.replace(tzinfo=UTC)

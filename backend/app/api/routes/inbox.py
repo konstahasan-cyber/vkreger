@@ -22,7 +22,7 @@ router = APIRouter(tags=["inbox"])
 def _item(db: Session, item_id: int) -> InboxItem:
     item = db.get(InboxItem, item_id)
     if item is None:
-        raise HTTPException(404, "Message not found")
+        raise HTTPException(404, "Сообщение не найдено")
     return item
 
 
@@ -51,7 +51,7 @@ def reply(item_id: int, body: ReplyRequest, request: Request, db: Session = Depe
     item = _item(db, item_id)
     text = body.text or item.suggested_reply
     if not text:
-        raise HTTPException(422, "No reply text")
+        raise HTTPException(422, "Нет текста ответа")
     send_reply(db, item, text, user_id=user.id)
     audit(db, user.id, "inbox.reply", "inbox_item", item.id, {"status": item.reply_status}, client_ip(request))
     db.commit()
@@ -71,9 +71,9 @@ def reject(item_id: int, db: Session = Depends(get_db), user: User = Depends(req
 def retriage(item_id: int, db: Session = Depends(get_db), _: User = Depends(require(Permission.HANDLE_INBOX))) -> InboxItem:
     item = _item(db, item_id)
     if item.reply_status == ReplyStatus.SENT.value:
-        raise HTTPException(409, "Already answered")
+        raise HTTPException(409, "Уже отвечено")
     if not claim_for_triage(db, item.id, manual=True):
-        raise HTTPException(409, "Item is being processed")
+        raise HTTPException(409, "Сообщение сейчас обрабатывается")
     db.refresh(item)
     triage_item(db, item, automatic=False)
     db.commit()
@@ -106,7 +106,7 @@ def update_lead(lead_id: int, body: LeadUpdate, request: Request, db: Session = 
                 user: User = Depends(require(Permission.HANDLE_INBOX))) -> Lead:
     lead = db.get(Lead, lead_id)
     if lead is None:
-        raise HTTPException(404, "Lead not found")
+        raise HTTPException(404, "Заявка не найдена")
     changes = body.model_dump(exclude_unset=True)
     for key, value in changes.items():
         setattr(lead, key, value.value if hasattr(value, "value") else value)

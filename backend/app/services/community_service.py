@@ -25,13 +25,13 @@ VK_STATUS_MAX = 139
 def get_community(db: Session, community_id: int) -> Community:
     community = db.get(Community, community_id)
     if community is None:
-        raise NotFoundError(f"community #{community_id} not found")
+        raise NotFoundError(f"Сообщество #{community_id} не найдено")
     return community
 
 
 def _require_account(project: Project) -> VKAccount:
     if project.vk_account is None:
-        raise ValidationAppError("Select a VK account for the project first")
+        raise ValidationAppError("Сначала выберите аккаунт VK в настройках проекта")
     return project.vk_account
 
 
@@ -65,14 +65,14 @@ def sync_account_communities(db: Session, account: VKAccount) -> list[Community]
 def connect_community(db: Session, project: Project, vk_group_id: int, community_token: str | None = None) -> Community:
     account = _require_account(project)
     if project.community and project.community.vk_group_id != vk_group_id:
-        raise ConflictError("Project already has another community; disconnect it first")
+        raise ConflictError("У проекта уже есть другое сообщество — сначала отключите его")
     with client_for_account(account) as client:
         group = client.get_group(vk_group_id)
     if not group.get("is_admin"):
-        raise ValidationAppError("The selected account is not an administrator of this community")
+        raise ValidationAppError("Выбранный аккаунт не является администратором этого сообщества")
     community = _upsert_from_vk(db, group, account)
     if community.project_id and community.project_id != project.id:
-        raise ConflictError(f"Community is already connected to project #{community.project_id}")
+        raise ConflictError(f"Это сообщество уже подключено к проекту #{community.project_id}")
     community.project_id = project.id
     community.project = project
     if community_token:
@@ -88,10 +88,10 @@ def create_community(db: Session, project: Project, *, title: str, description: 
     """Create a public page through groups.create (official API, explicit user confirmation)."""
     account = _require_account(project)
     if project.community:
-        raise ConflictError("Project already has a community")
+        raise ConflictError("У проекта уже есть сообщество")
     title = title.strip()[:VK_TITLE_MAX]
     if not title:
-        raise ValidationAppError("Community title is required")
+        raise ValidationAppError("Укажите название сообщества")
     with client_for_account(account) as client:
         created = client.create_group(title, description, type_="public", public_category=public_category,
                                       subtype=subtype)
@@ -142,7 +142,7 @@ def create_pinned_post(db: Session, project: Project, *, title: str, text: str) 
 
     community = project.community
     if community is None:
-        raise ValidationAppError("Connect a community first")
+        raise ValidationAppError("Сначала подключите сообщество")
     post = Post(project_id=project.id, community_id=community.id, title=title[:500], text=text, category="pinned",
                 topic=title, status=PostStatus.APPROVED.value, guid=uuid.uuid4().hex, attachments=[], hashtags=[],
                 analytics={}, generation_metadata={"operation": "pinned_post"}, is_pinned=True)
@@ -167,7 +167,7 @@ def setup_events(db: Session, community: Community, mode: EventMode) -> dict:
         db.flush()
         return {"mode": "none"}
     if not community.community_token and mode == EventMode.LONGPOLL:
-        raise ValidationAppError("Bots Long Poll API requires a community access token")
+        raise ValidationAppError("Для Long Poll нужен ключ доступа сообщества")
     with client_for_community(community) as client:
         if mode == EventMode.CALLBACK:
             community.callback_secret = community.callback_secret or secrets.token_urlsafe(24)

@@ -20,7 +20,7 @@ KNOWN_RUBRICS = ["educational", "case", "faq", "product", "sales", "expert", "ne
 def get_project(db: Session, project_id: int) -> Project:
     project = db.get(Project, project_id)
     if project is None:
-        raise NotFoundError(f"project #{project_id} not found")
+        raise NotFoundError(f"Проект #{project_id} не найден")
     return project
 
 
@@ -79,12 +79,14 @@ def run_setup(db: Session, project: Project, *, force: bool = False, ai: AIServi
     community = data.get("community", {})
     names = community.get("name_options") or [project.business_name]
     project.brand = {
+        **(project.brand or {}),
         "community_name": names[0],
         "cta_style": community.get("cta_style"),
         "key_messages": community.get("key_messages", []),
         "design": data.get("design", {}),
     }
-    project.content_rules = data.get("content_rules", {})
+    keep = {k: v for k, v in (project.content_rules or {}).items() if k.startswith("brand_")}
+    project.content_rules = {**data.get("content_rules", {}), **keep}
     apply_rubrics(db, project, data.get("rubrics", []))
     strategy = data.get("strategy", {})
     save_strategy(db, project.id, strategy, source="setup")
@@ -99,7 +101,7 @@ def run_setup(db: Session, project: Project, *, force: bool = False, ai: AIServi
 def generate_content_plan(db: Session, project: Project, *, days: int = 7, count: int | None = None,
                           automatic: bool = False, force: bool = False, ai: AIService | None = None) -> list[ContentPlanItem]:
     if not project.rubrics:
-        raise ValidationAppError("Project has no rubrics: run the AI setup first")
+        raise ValidationAppError("У проекта нет рубрик — сначала запустите AI-анализ")
     ai = ai or AIService(db)
     if count is None:
         per_week = project.posts_per_week or (project.posts_per_day or 1) * 7

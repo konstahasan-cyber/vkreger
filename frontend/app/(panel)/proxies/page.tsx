@@ -27,20 +27,20 @@ export default function ProxiesPage() {
   return (
     <>
       <div className="topbar">
-        <h1>Proxy Manager</h1>
+        <div><h1>Прокси</h1><div className="page-sub">Сетевые адреса для ваших аккаунтов VK: один прокси — один аккаунт.</div></div>
         <div className="row">
           <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ width: 160 }}>
-            <option value="">Все статусы</option><option value="alive">alive</option><option value="dead">dead</option><option value="unknown">не проверены</option>
+            <option value="">Все</option><option value="alive">Работают</option><option value="dead">Не работают</option><option value="unknown">Не проверены</option>
           </select>
           <button onClick={() => act(() => api("/proxies/check-all", { method: "POST" }), "Проверка всех proxy запущена в фоне")}>Проверить все</button>
           <button className="primary" onClick={() => { setResult(null); setShowImport(true); }}>Импорт списком</button>
         </div>
       </div>
       <Alerts error={error || action.error} message={action.message} />
-      <div className="card small muted">Proxy — это только сетевая конфигурация ваших аккаунтов: один proxy на один аккаунт, аккаунт может работать и без proxy.</div>
+      <div className="card small muted">Привяжите прокси к аккаунту на странице «Аккаунты VK» или прямо в таблице. Если прокси перестал работать, аккаунт автоматически получит свободный. Аккаунт может работать и без прокси.</div>
       <div className="card table-wrap">
         <table>
-          <thead><tr><th>#</th><th>Proxy</th><th>Пароль</th><th>Статус</th><th>IP / страна</th><th>Latency</th><th>Аккаунт</th><th>Проверен</th><th /></tr></thead>
+          <thead><tr><th>#</th><th>Адрес</th><th>Пароль</th><th>Статус</th><th>Внешний IP / страна</th><th>Скорость</th><th>Аккаунт</th><th>Проверен</th><th /></tr></thead>
           <tbody>
             {(proxies || []).map((p) => (
               <tr key={p.id}>
@@ -68,7 +68,7 @@ export default function ProxiesPage() {
         {proxies && proxies.length === 0 && <p className="muted">Нет proxy.</p>}
       </div>
       {showImport && (
-        <Modal title="Массовая загрузка proxy" onClose={() => setShowImport(false)}>
+        <Modal title="Загрузить список прокси" onClose={() => setShowImport(false)}>
           <Alerts error={action.error} />
           <p className="small muted">По одному на строку. Форматы: IP:PORT, IP:PORT:LOGIN, IP:PORT:LOGIN:PASSWORD, LOGIN@IP, LOGIN:PASSWORD@IP:PORT, http://LOGIN:PASSWORD@IP:PORT, socks5://LOGIN@IP</p>
           <Field label="Схема по умолчанию (для строк без http:// / socks5://)">

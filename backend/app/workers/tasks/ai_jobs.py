@@ -118,6 +118,11 @@ def launch_community_task(job_id: int) -> dict:
             db, community, description=params.get("description"), status=params.get("status"),
             website=project.website or None)
         db.commit()
+        if (project.brand or {}).get("avatar") or (project.brand or {}).get("cover"):
+            from app.services.brand_service import upload_design
+
+            result["design"] = upload_design(db, project)
+            db.commit()
         pinned = params.get("pinned_post")
         if pinned and pinned.get("text"):
             post = community_service.create_pinned_post(db, project, title=pinned.get("title", ""), text=pinned["text"])
@@ -184,5 +189,40 @@ def fill_queue_job(job_id: int) -> dict:
         project = project_service.get_project(db, job.project_id)
         return queue_service.fill_queue(db, project, automatic=False, force=job.params.get("force", False),
                                         max_new=int(job.params.get("max_new", 5)))
+
+    return run_job(job_id, fn)
+
+
+@celery_app.task(name="app.workers.tasks.ai_jobs.brand_import")
+def brand_import_task(job_id: int) -> dict:
+    from app.content.brand_import import BrandImportError, fetch_site
+    from app.services.brand_service import apply_brand_analysis
+
+    def fn(db: Session, job: Job) -> dict:
+        project = project_service.get_project(db, job.project_id)
+        signals = job.params.get("signals")
+        if signals is None:
+            try:
+                signals = fetch_site(job.params["url"]).to_dict()
+            except BrandImportError as exc:
+                raise AppError(str(exc)) from exc
+        style = apply_brand_analysis(db, project, signals, force=job.params.get("force", False))
+        return {"palette": style.get("palette"), "visual_style": style.get("visual_style")}
+
+    return run_job(job_id, fn)
+
+
+@celery_app.task(name="app.workers.tasks.ai_jobs.design_generate")
+def design_generate_task(job_id: int) -> dict:
+    from app.services.brand_service import generate_design, upload_design
+
+    def fn(db: Session, job: Job) -> dict:
+        project = project_service.get_project(db, job.project_id)
+        result = generate_design(db, project, job.params.get("kinds", ["avatar", "cover"]),
+                                 force=job.params.get("force", False))
+        db.commit()
+        if job.params.get("upload") and project.community:
+            result["upload"] = upload_design(db, project, list(result))
+        return result
 
     return run_job(job_id, fn)

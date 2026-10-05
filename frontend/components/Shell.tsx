@@ -5,20 +5,28 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, getToken, setToken } from "@/lib/api";
 
-const NAV = [
-  ["/", "Dashboard"],
-  ["/projects", "Projects"],
-  ["/accounts", "VK Accounts"],
-  ["/proxies", "Proxies"],
-  ["/communities", "Communities"],
-  ["/content", "Content"],
-  ["/calendar", "Calendar"],
-  ["/messages", "Messages"],
-  ["/leads", "Leads"],
-  ["/analytics", "Analytics"],
-  ["/ai-settings", "AI Settings"],
-  ["/logs", "System Logs"],
-] as const;
+const NAV: { section: string; items: [string, string, string][] }[] = [
+  { section: "Работа", items: [
+    ["/", "🏠", "Главная"],
+    ["/projects", "🚀", "Проекты"],
+    ["/content", "📝", "Посты"],
+    ["/calendar", "📅", "Календарь"],
+    ["/messages", "💬", "Сообщения"],
+    ["/leads", "🎯", "Заявки"],
+    ["/analytics", "📊", "Аналитика"],
+  ] },
+  { section: "Подключения", items: [
+    ["/accounts", "👤", "Аккаунты VK"],
+    ["/communities", "👥", "Сообщества"],
+    ["/proxies", "🌐", "Прокси"],
+  ] },
+  { section: "Система", items: [
+    ["/ai-settings", "🤖", "Настройки AI"],
+    ["/logs", "🧾", "Журнал"],
+  ] },
+];
+
+const ROLES: Record<string, string> = { owner: "владелец", admin: "администратор", operator: "оператор", viewer: "наблюдатель" };
 
 interface Me { email: string; role: string }
 
@@ -41,12 +49,20 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="layout">
       <nav className="sidebar">
-        <div className="brand">VKreger</div>
-        {NAV.map(([href, label]) => (
-          <Link key={href} href={href} className={isActive(href) ? "active" : ""}>{label}</Link>
+        <div className="brand"><span className="logo">✦</span>VKreger</div>
+        {NAV.map((group) => (
+          <div key={group.section}>
+            <div className="section">{group.section}</div>
+            {group.items.map(([href, ico, label]) => (
+              <Link key={href} href={href} className={isActive(href) ? "active" : ""}><span className="ico">{ico}</span>{label}</Link>
+            ))}
+          </div>
         ))}
-        <div className="small muted" style={{ padding: "16px 10px 0" }}>{me.email}<br />роль: {me.role}</div>
-        <button className="logout small" onClick={() => { setToken(null); router.replace("/login"); }}>Выйти</button>
+        <div className="user">
+          <div style={{ color: "#fff" }}>{me.email}</div>
+          <div>{ROLES[me.role] || me.role}</div>
+          <button className="small" style={{ marginTop: 10 }} onClick={() => { setToken(null); router.replace("/login"); }}>Выйти</button>
+        </div>
       </nav>
       <main className="main">{children}</main>
     </div>

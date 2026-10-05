@@ -15,7 +15,7 @@ from app.schemas.community import CommunityOut, CommunitySettingsRequest, Commun
 from app.schemas.project import EventsSetupRequest
 from app.services import community_service
 from app.services.audit import audit
-from app.vk.errors import VKAPIError, VKError
+from app.vk.errors import VKAPIError, VKError, describe_vk_error
 
 router = APIRouter(prefix="/communities", tags=["communities"])
 
@@ -49,9 +49,9 @@ def update_community(community_id: int, body: CommunityUpdate, request: Request,
     elif body.project_id is not None:
         project = db.get(Project, body.project_id)
         if project is None:
-            raise HTTPException(404, "Project not found")
+            raise HTTPException(404, "Проект не найден")
         if project.community and project.community.id != community.id:
-            raise HTTPException(409, "Project already has a community")
+            raise HTTPException(409, "У проекта уже есть сообщество")
         community.project_id = project.id
     audit(db, user.id, "community.update", "community", community.id,
           {"token_changed": body.community_token is not None, "project_id": body.project_id,
@@ -67,7 +67,7 @@ def apply_settings(community_id: int, body: CommunitySettingsRequest, request: R
     try:
         result = community_service.apply_settings(db, community, **body.model_dump())
     except VKError as exc:
-        raise HTTPException(502, f"VK error: {exc}") from exc
+        raise HTTPException(502, describe_vk_error(exc)) from exc
     audit(db, user.id, "community.settings", "community", community.id, {"result": result}, client_ip(request))
     db.commit()
     return result
@@ -81,7 +81,7 @@ def setup_events(community_id: int, body: EventsSetupRequest, request: Request, 
         result = community_service.setup_events(db, community, body.mode)
     except VKAPIError as exc:
         db.rollback()
-        raise HTTPException(502, f"VK error {exc.code}: {exc.message}") from exc
+        raise HTTPException(502, describe_vk_error(exc)) from exc
     except (VKError, ValidationAppError) as exc:
         db.rollback()
         raise HTTPException(422, str(exc)) from exc
@@ -101,7 +101,7 @@ def sync(community_id: int, db: Session = Depends(get_db), _: User = Depends(req
     except VKError as exc:
         community.last_error = str(exc)
         db.commit()
-        raise HTTPException(502, f"VK error: {exc}") from exc
+        raise HTTPException(502, describe_vk_error(exc)) from exc
     community_service._upsert_from_vk(db, group, community.account)
     community.last_error = None
     db.commit()

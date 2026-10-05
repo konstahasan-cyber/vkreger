@@ -81,7 +81,7 @@ def test_cost_limited_item_is_retried_later(db, project):
     triage(item.id)
     db.expire_all()
     item = db.get(InboxItem, item.id)
-    assert item.reply_status == "new" and "limit" in item.error
+    assert item.reply_status == "new" and "лимит" in item.error
     update_runtime_settings(db, {"MAX_AI_COST_PER_DAY": None})
     item.updated_at = utcnow() - timedelta(hours=2)
     db.commit()

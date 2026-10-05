@@ -89,5 +89,5 @@ def test_dead_proxy_without_replacement_blocks_requests(client, admin_headers, v
     db.commit()
     account = add_account(client, admin_headers, proxy_id=proxy.id)
     assert account["status"] == "error"
-    assert "dead" in account["last_error"]
+    assert "Прокси" in account["last_error"]
     assert vk.calls == []  # never fell back to a direct connection

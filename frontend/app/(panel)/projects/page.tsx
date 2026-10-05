@@ -3,32 +3,43 @@
 import Link from "next/link";
 import { GOALS } from "@/lib/format";
 import type { Project } from "@/lib/types";
-import { Alerts, Badge, useLoad } from "@/components/ui";
+import { Alerts, Badge, Empty, useLoad } from "@/components/ui";
+
+const STATUS: Record<string, [string, string]> = {
+  draft: ["new", "Нужен AI-анализ"], analyzing: ["running", "AI анализирует"], proposal_ready: ["new", "Нужно подключить сообщество"],
+  active: ["active", "Работает"], paused: ["pending", "На паузе"], archived: ["", "Архив"],
+};
 
 export default function ProjectsPage() {
   const { data, error } = useLoad<Project[]>("/projects");
   return (
     <>
-      <div className="topbar"><h1>Проекты</h1><Link href="/projects/new"><button className="primary">+ Новый проект</button></Link></div>
+      <div className="topbar">
+        <div><h1>Проекты</h1><div className="page-sub">Один проект — один бизнес и одно сообщество VK.</div></div>
+        <Link href="/projects/new"><button className="primary big">+ Новый проект</button></Link>
+      </div>
       <Alerts error={error} />
-      <div className="card table-wrap">
-        <table>
-          <thead><tr><th>#</th><th>Проект</th><th>Цель</th><th>Статус</th><th>Сообщество</th><th>Частота</th><th>Автопилот</th></tr></thead>
-          <tbody>
-            {(data || []).map((p) => (
-              <tr key={p.id}>
-                <td>{p.id}</td>
-                <td><Link href={`/projects/${p.id}`}><b>{p.name}</b></Link><div className="small muted">{p.business_name}{p.city ? `, ${p.city}` : ""}</div></td>
-                <td>{GOALS[p.goal] || p.goal}</td>
-                <td><Badge value={p.status} /></td>
-                <td>{p.community_name || <span className="muted">не подключено</span>}</td>
-                <td className="small">{p.posts_per_day ? `${p.posts_per_day}/день` : `${p.posts_per_week ?? "—"}/нед.`}</td>
-                <td>{p.autopilot ? "вкл" : "выкл"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {data && data.length === 0 && <p className="muted">Проектов пока нет.</p>}
+      {data && data.length === 0 && (
+        <div className="card"><Empty icon="🚀" title="Проектов пока нет"><p>Создайте первый проект: опишите бизнес, а AI подготовит сообщество и посты.</p><Link href="/projects/new"><button className="primary">+ Создать проект</button></Link></Empty></div>
+      )}
+      <div className="grid-3">
+        {(data || []).map((p) => {
+          const [badge, label] = STATUS[p.status] || ["", p.status];
+          return (
+            <Link key={p.id} href={`/projects/${p.id}`} style={{ color: "inherit" }}>
+              <div className="card" style={{ height: "100%", marginBottom: 0 }}>
+                <div className="row between" style={{ marginBottom: 8 }}><Badge value={badge || "new"} label={label} />{p.autopilot && <span className="badge info">🤖 автопилот</span>}</div>
+                <h2 style={{ marginBottom: 2 }}>{p.name}</h2>
+                <div className="muted small" style={{ marginBottom: 10 }}>{p.business_name}{p.city ? `, ${p.city}` : ""}</div>
+                <div className="meta-line">
+                  <span>🎯 {GOALS[p.goal] || p.goal}</span>
+                  <span>📝 {p.posts_per_day ? `${p.posts_per_day} в день` : `${p.posts_per_week ?? "—"} в неделю`}</span>
+                  <span>👥 {p.community_name || "сообщество не подключено"}</span>
+                </div>
+              </div>
+            </Link>
+          );
+        })}
       </div>
     </>
   );

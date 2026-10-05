@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -33,7 +34,7 @@ from app.schemas.project import (
 from app.services import community_service, project_service
 from app.services.audit import audit
 from app.services.job_service import create_job
-from app.vk.errors import VKAPIError, VKError
+from app.vk.errors import VKAPIError, VKError, describe_vk_error
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -44,7 +45,7 @@ def _enum_value(value):  # noqa: ANN001, ANN202
 
 def _check_force(user: User, force: bool) -> None:
     if force and not has_permission(user.role, Permission.FORCE_AI_LIMIT):
-        raise HTTPException(403, "Forcing past AI cost limits requires admin rights")
+        raise HTTPException(403, "Превысить лимит расходов на AI может только администратор")
 
 
 def _detail(db: Session, project: Project) -> ProjectDetail:
@@ -61,7 +62,7 @@ def _detail(db: Session, project: Project) -> ProjectDetail:
 
 def _validate_account(db: Session, account_id: int | None) -> None:
     if account_id is not None and db.get(VKAccount, account_id) is None:
-        raise HTTPException(422, "VK account not found")
+        raise HTTPException(422, "Аккаунт VK не найден")
 
 
 @router.get("", response_model=list[ProjectOut])
@@ -142,7 +143,7 @@ def preview(project_id: int, db: Session = Depends(get_db), _: User = Depends(re
     project = project_service.get_project(db, project_id)
     data = project.setup_proposal or {}
     if not data:
-        raise HTTPException(409, "Run the AI setup first")
+        raise HTTPException(409, "Сначала запустите AI-анализ")
     community = data.get("community", {})
     return CommunityPreview(
         name_options=community.get("name_options", []),
@@ -176,10 +177,10 @@ def create_community(project_id: int, body: CommunityCreateRequest, request: Req
                                                        public_category=body.public_category, subtype=body.subtype)
     except VKAPIError as exc:
         db.rollback()
-        raise HTTPException(502, f"VK error {exc.code}: {exc.message}") from exc
+        raise HTTPException(502, describe_vk_error(exc)) from exc
     except VKError as exc:
         db.rollback()
-        raise HTTPException(502, f"VK error: {exc}") from exc
+        raise HTTPException(502, describe_vk_error(exc)) from exc
     audit(db, user.id, "community.create", "community", community.id,
           {"project_id": project.id, "vk_group_id": community.vk_group_id, "title": body.title}, client_ip(request))
     db.commit()
@@ -198,10 +199,10 @@ def connect_community(project_id: int, body: CommunityConnectRequest, request: R
         community = community_service.connect_community(db, project, body.vk_group_id, body.community_token)
     except VKAPIError as exc:
         db.rollback()
-        raise HTTPException(502, f"VK error {exc.code}: {exc.message}") from exc
+        raise HTTPException(502, describe_vk_error(exc)) from exc
     except VKError as exc:
         db.rollback()
-        raise HTTPException(502, f"VK error: {exc}") from exc
+        raise HTTPException(502, describe_vk_error(exc)) from exc
     audit(db, user.id, "community.connect", "community", community.id,
           {"project_id": project.id, "vk_group_id": community.vk_group_id}, client_ip(request))
     db.commit()
@@ -266,7 +267,7 @@ def update_plan_item(project_id: int, item_id: int, body: PlanItemUpdate, db: Se
                      _: User = Depends(require(Permission.MANAGE_CONTENT))) -> ContentPlanItem:
     item = db.get(ContentPlanItem, item_id)
     if item is None or item.project_id != project_id:
-        raise HTTPException(404, "Plan item not found")
+        raise HTTPException(404, "Тема не найдена")
     changes = body.model_dump(exclude_unset=True)
     if "status" in changes:
         PlanItemStatus(changes["status"])
@@ -281,7 +282,7 @@ def delete_plan_item(project_id: int, item_id: int, db: Session = Depends(get_db
                      _: User = Depends(require(Permission.MANAGE_CONTENT))) -> None:
     item = db.get(ContentPlanItem, item_id)
     if item is None or item.project_id != project_id:
-        raise HTTPException(404, "Plan item not found")
+        raise HTTPException(404, "Тема не найдена")
     db.delete(item)
     db.commit()
 
@@ -300,7 +301,7 @@ def update_rubric(project_id: int, rubric_id: int, body: RubricUpdate, db: Sessi
                   _: User = Depends(require(Permission.MANAGE_CONTENT))) -> Rubric:
     rubric = db.get(Rubric, rubric_id)
     if rubric is None or rubric.project_id != project_id:
-        raise HTTPException(404, "Rubric not found")
+        raise HTTPException(404, "Рубрика не найдена")
     for key, value in body.model_dump(exclude_unset=True).items():
         setattr(rubric, key, value)
     db.commit()
@@ -333,3 +334,79 @@ def analyst_review(project_id: int, db: Session = Depends(get_db),
     analyst_review_job.delay(job.id)
     db.refresh(job)
     return JobOut.model_validate(job)
+
+
+# ------------------------------------------------------------------ brand style & design
+class BrandImportRequest(BaseModel):
+    url: str = Field(min_length=4, max_length=500)
+    force: bool = False
+
+
+class DesignRequest(BaseModel):
+    kinds: list[str] = Field(default_factory=lambda: ["avatar", "cover"])
+    upload: bool = True
+    force: bool = False
+
+
+@router.post("/{project_id}/brand/import", response_model=JobOut, status_code=202)
+def brand_import(project_id: int, body: BrandImportRequest, db: Session = Depends(get_db),
+                 user: User = Depends(require(Permission.MANAGE_PROJECTS))) -> JobOut:
+    from app.workers.tasks.ai_jobs import brand_import_task
+
+    _check_force(user, body.force)
+    project = project_service.get_project(db, project_id)
+    job = create_job(db, "brand_import", project_id=project.id, params={"url": body.url.strip(), "force": body.force},
+                     user_id=user.id)
+    db.commit()
+    brand_import_task.delay(job.id)
+    db.refresh(job)
+    return JobOut.model_validate(job)
+
+
+@router.post("/{project_id}/brand/upload", response_model=JobOut, status_code=202)
+async def brand_upload(project_id: int, file: UploadFile = File(...), db: Session = Depends(get_db),
+                       user: User = Depends(require(Permission.MANAGE_PROJECTS))) -> JobOut:
+    from app.content.brand_import import BrandImportError, signals_from_upload
+    from app.workers.tasks.ai_jobs import brand_import_task
+
+    project = project_service.get_project(db, project_id)
+    content = await file.read(2_000_001)
+    try:
+        signals = signals_from_upload(content).to_dict()
+    except BrandImportError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    job = create_job(db, "brand_import", project_id=project.id, params={"signals": signals, "file": file.filename},
+                     user_id=user.id)
+    db.commit()
+    brand_import_task.delay(job.id)
+    db.refresh(job)
+    return JobOut.model_validate(job)
+
+
+@router.post("/{project_id}/design/generate", response_model=JobOut, status_code=202)
+def design_generate(project_id: int, body: DesignRequest, db: Session = Depends(get_db),
+                    user: User = Depends(require(Permission.MANAGE_PROJECTS))) -> JobOut:
+    from app.workers.tasks.ai_jobs import design_generate_task
+
+    _check_force(user, body.force)
+    kinds = [k for k in body.kinds if k in ("avatar", "cover")]
+    if not kinds:
+        raise HTTPException(422, "Укажите avatar и/или cover")
+    project = project_service.get_project(db, project_id)
+    job = create_job(db, "design_generate", project_id=project.id,
+                     params={"kinds": kinds, "upload": body.upload, "force": body.force}, user_id=user.id)
+    db.commit()
+    design_generate_task.delay(job.id)
+    db.refresh(job)
+    return JobOut.model_validate(job)
+
+
+@router.post("/{project_id}/design/upload")
+def design_upload(project_id: int, db: Session = Depends(get_db),
+                  user: User = Depends(require(Permission.MANAGE_PROJECTS))) -> dict:
+    from app.services.brand_service import upload_design
+
+    project = project_service.get_project(db, project_id)
+    result = upload_design(db, project)
+    db.commit()
+    return result

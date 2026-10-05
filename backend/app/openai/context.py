@@ -79,6 +79,11 @@ def brand_context(project: Project) -> str:
         parts.append(f"Стиль CTA: {_clip(brand['cta_style'], 200)}")
     if brand.get("key_messages"):
         parts.append("Ключевые сообщения: " + "; ".join(_clip(m, 120) for m in brand["key_messages"][:5]))
+    style = brand.get("style") or {}
+    if style.get("tone_of_voice"):
+        parts.append(f"Как пишет компания: {_clip(style['tone_of_voice'], 250)}")
+    if style.get("key_phrases"):
+        parts.append("Фирменные формулировки: " + "; ".join(_clip(p, 80) for p in style["key_phrases"][:6]))
     if project.website:
         parts.append(f"Сайт: {project.website}")
     if project.contacts:
@@ -97,6 +102,8 @@ def content_rules(project: Project, db: Session | None = None) -> str:
         lines.append("Делать: " + "; ".join(_clip(x, 100) for x in rules["do"][:8]))
     if rules.get("dont"):
         lines.append("Не делать: " + "; ".join(_clip(x, 100) for x in rules["dont"][:8]))
+    if rules.get("brand_tone"):
+        lines.append(f"Тон бренда: {_clip(rules['brand_tone'], 200)}")
     length = rules.get("post_length") or "600-1200 символов"
     lines.append(f"Длина поста: {length}. Хештегов: 2-5. Эмодзи — умеренно.")
     lines.append("Запрещено: выдумывать цены/факты/отзывы, которых нет в данных; кликбейт; канцелярит; "
