@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Управление VKreger на сервере. Установка: ln -sf /opt/vkreger/deploy/vk /usr/local/bin/vk
+set -euo pipefail
+DIR="${VKREGER_DIR:-/opt/vkreger}"
+cd "$DIR"
+dc() { docker compose -f docker-compose.yml -f docker-compose.prod.yml "$@"; }
+need_root() { if [ "$(id -u)" -ne 0 ]; then exec sudo -E "$0" "$@"; fi; }
+
+case "${1:-help}" in
+  update)  need_root "$@"; bash deploy/update.sh ;;
+  restart) need_root "$@"; dc up -d; dc restart backend worker beat frontend; echo "Перезапущено." ;;
+  start)   need_root "$@"; dc up -d; echo "Запущено: $(grep -m1 '^PUBLIC_BASE_URL=' .env | cut -d= -f2-)" ;;
+  stop)    need_root "$@"; dc stop; echo "Остановлено. Данные сохранены." ;;
+  status)  dc ps --format "table {{.Service}}\t{{.Status}}"; echo; echo "Адрес: $(grep -m1 '^PUBLIC_BASE_URL=' .env | cut -d= -f2-)" ;;
+  logs)    dc logs --tail "${2:-100}" -f backend worker ;;
+  backup)  need_root "$@"; bash deploy/backup.sh ;;
+  env)     need_root "$@"; "${EDITOR:-nano}" .env; dc up -d; echo "Настройки применены." ;;
+  *)
+    cat <<'HELP'
+Команды VKreger:
+  vk update    — обновить до последней версии (с резервной копией)
+  vk restart   — перезапустить панель
+  vk start     — запустить
+  vk stop      — остановить
+  vk status    — состояние и адрес панели
+  vk logs      — логи в реальном времени (выход: Ctrl+C)
+  vk backup    — резервная копия базы и картинок
+  vk env       — изменить настройки (.env), например ключ OpenAI
+HELP
+    ;;
+esac

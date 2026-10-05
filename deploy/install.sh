@@ -96,6 +96,9 @@ if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
   ufw allow 80/tcp >/dev/null && ufw allow 443/tcp >/dev/null
 fi
 
+chmod +x deploy/*.sh deploy/vk
+ln -sf "$DIR/deploy/vk" /usr/local/bin/vk
+
 say "Собираю и запускаю (первый раз 5-15 минут)"
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --remove-orphans
 
