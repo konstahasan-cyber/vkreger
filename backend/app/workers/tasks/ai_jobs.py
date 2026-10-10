@@ -18,7 +18,8 @@ from app.models.system import Job
 from app.openai.provider import AIError
 from app.services import project_service, queue_service
 from app.services.audit import syslog
-from app.services.job_service import finish_job
+from app.services.job_service import create_job, finish_job
+from app.services.publishing_service import schedule_post
 from app.vk.errors import VKError
 from app.workers.celery_app import celery_app
 
@@ -87,13 +88,15 @@ def generate_posts_task(job_id: int) -> dict:
         project = project_service.get_project(db, job.project_id)
         params = job.params
         ids = []
-        for _ in range(max(1, min(int(params.get("count", 1)), 30))):
+        total = max(1, min(int(params.get("count", 1)), 60))
+        for _ in range(total):
             if params.get("topic") is None and project_service_needs_plan(db, project.id):
                 project_service.generate_content_plan(db, project, days=7, force=params.get("force", False))
             post = generate_post(db, project, topic=params.get("topic"), rubric_code=params.get("rubric_code"),
                                  angle=params.get("angle"), extra_instructions=params.get("instructions"),
                                  force=params.get("force", False), with_image=params.get("with_image"))
             ids.append(post.id)
+            job.result = {"done": len(ids), "total": total}
             db.commit()
         if params.get("cadence_days"):
             planned = plan_cadence(project, len(ids), int(params["cadence_days"]), params.get("post_time"),
@@ -101,26 +104,37 @@ def generate_posts_task(job_id: int) -> dict:
             for post_id, when in zip(ids, planned, strict=True):
                 post = db.get(Post, post_id)
                 post.scheduled_at = when
+                if params.get("auto_schedule") and post.community_id:
+                    schedule_post(db, post, when)
             db.commit()
-        return {"posts": ids}
+        return {"posts": ids, "done": len(ids), "total": total}
 
     return run_job(job_id, fn)
 
 
 def plan_cadence(project, count: int, every_days: int, post_time: str | None, start: str | None) -> list:  # noqa: ANN001
-    """Publication times: one post every ``every_days`` days at ``post_time`` (project timezone)."""
+    """Publication times: every ``every_days`` days at ``post_time`` (project timezone).
+
+    ``post_time`` may list several times («10:00,19:00») — then each of those days gets several posts.
+    """
     from datetime import date, datetime, time, timedelta
 
     from app.content.slots import tz
 
     zone = tz(project)
-    hh, mm = (post_time or (project.posting_times or ["10:00"])[0]).split(":")
-    at = time(int(hh), int(mm))
+    raw = post_time or (project.posting_times or ["10:00"])[0]
+    times = sorted({time(int(t.split(":")[0]), int(t.split(":")[1])) for t in str(raw).split(",") if ":" in t})
+    times = times or [time(10, 0)]
     day = date.fromisoformat(start) if start else datetime.now(zone).date()
-    first = datetime.combine(day, at, tzinfo=zone)
-    while first <= datetime.now(zone) + timedelta(minutes=5):
-        first += timedelta(days=1)
-    return [(first + timedelta(days=every_days * i)).astimezone(UTC) for i in range(count)]
+    earliest = datetime.now(zone) + timedelta(minutes=5)
+    result = []
+    while len(result) < count:
+        for at in times:
+            when = datetime.combine(day, at, tzinfo=zone)
+            if when > earliest and len(result) < count:
+                result.append(when.astimezone(UTC))
+        day += timedelta(days=every_days if result else 1)
+    return result
 
 
 def project_service_needs_plan(db: Session, project_id: int) -> bool:
@@ -249,5 +263,102 @@ def design_generate_task(job_id: int) -> dict:
         if job.params.get("upload") and project.community:
             result["upload"] = upload_design(db, project, list(result))
         return result
+
+    return run_job(job_id, fn)
+
+
+def stagger_times(post_times: list[str], minutes: int) -> str:
+    """Shift publication times so groups of one network don't all post in the same minute."""
+    out = []
+    for value in post_times or ["10:00"]:
+        hh, mm = (int(x) for x in value.split(":"))
+        total = (hh * 60 + mm + minutes) % (24 * 60)
+        out.append(f"{total // 60:02d}:{total % 60:02d}")
+    return ",".join(out)
+
+
+def posts_in_period(days: int, every_days: int, times_per_day: int) -> int:
+    return max(1, -(-days // max(1, every_days)) * max(1, times_per_day))
+
+
+@celery_app.task(name="app.workers.tasks.ai_jobs.network_launch")
+def network_launch_task(job_id: int) -> dict:
+    """Network: one shared AI strategy → a content plan per group (aware of the others) → posts per group."""
+    from app.services import community_service, network_service
+
+    def fn(db: Session, job: Job) -> dict:
+        params = job.params
+        network = params["network"]
+        projects = [project_service.get_project(db, pid) for pid in params["project_ids"]]
+        projects = [p for p in projects if p.network == network]
+        if not projects:
+            raise AppError("В сети нет групп для запуска")
+        force = params.get("force", False)
+        template = network_service.template_project(db, network)
+        if template is None:
+            template = projects[0]
+            project_service.run_setup(db, template, force=force)
+            db.commit()
+        for project in projects:
+            if project.id != template.id and not (project.rubrics and project.context_summary):
+                network_service.copy_strategy(db, template, project)
+            if project.community:
+                community_service.activate_project(db, project)
+        db.commit()
+
+        days = int(params.get("days", 14))
+        every = int(params.get("cadence_days", 1))
+        times = params.get("post_times") or ["10:00"]
+        count = min(posts_in_period(days, every, len(times)), 60)
+        order = {p.id: i for i, p in enumerate(network_service.network_projects(db, network))}
+        # plans one after another: each group sees the topics already taken by the others
+        for project in projects:
+            project_service.generate_content_plan(db, project, days=days, count=count, force=force)
+            db.commit()
+        children = {}
+        for project in projects:
+            child = create_job(db, "generate_posts", project_id=project.id, user_id=job.created_by, params={
+                "count": count, "cadence_days": every, "post_time": stagger_times(times, 4 * order.get(project.id, 0)),
+                "start_date": params.get("start_date"), "with_image": params.get("with_image"),
+                "auto_schedule": params.get("auto_schedule", False), "force": force, "network": network,
+            })
+            db.commit()
+            children[str(project.id)] = child.id
+        for child_id in children.values():
+            generate_posts_task.delay(child_id)
+        return {"children": children, "posts_per_group": count}
+
+    return run_job(job_id, fn)
+
+
+@celery_app.task(name="app.workers.tasks.ai_jobs.network_dedupe")
+def network_dedupe_task(job_id: int) -> dict:
+    """Rewrite unpublished posts that look like posts of other groups in the network."""
+    from app.content.generator import rewrite_post
+    from app.services import network_service
+
+    def fn(db: Session, job: Job) -> dict:
+        from app.services.settings_service import load_runtime_settings
+
+        rs = load_runtime_settings(db)
+        pairs = network_service.similar_pairs(db, job.params["network"],
+                                              semantic_threshold=float(rs.SIMILARITY_THRESHOLD),
+                                              title_threshold=float(rs.TITLE_SIMILARITY_THRESHOLD))
+        targets = list(dict.fromkeys(p["rewrite"]["id"] for p in pairs if p["can_rewrite"]))
+        rewritten, failed = [], []
+        for post_id in targets[:int(job.params.get("max", 100))]:
+            post = db.get(Post, post_id)
+            if post is None:
+                continue
+            try:
+                rewrite_post(db, post, force=job.params.get("force", False))
+                db.commit()
+                rewritten.append(post_id)
+            except (AppError, AIError) as exc:
+                db.rollback()
+                failed.append({"post": post_id, "error": getattr(exc, "message", str(exc))})
+                if isinstance(exc, CostLimitExceeded):
+                    break
+        return {"similar_pairs": len(pairs), "rewritten": rewritten, "failed": failed}
 
     return run_job(job_id, fn)

@@ -152,7 +152,8 @@ class VKClient:
         resp = self.call("groups.get", filter="admin", extended=1, fields="members_count,description,screen_name", count=1000)
         return resp.get("items", []) if resp else []
 
-    def get_group(self, group_id: int | str) -> dict:
+    def get_group(self, group_id: int | str | None = None) -> dict:
+        """With a community key and no ID VK returns the key's own community."""
         resp = self.call("groups.getById", group_id=group_id, fields="members_count,description,status,site,can_post")
         # 5.199 returns {"groups": [...], "profiles": [...]}; older versions — a list.
         groups = resp.get("groups", []) if isinstance(resp, dict) else resp

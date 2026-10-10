@@ -14,7 +14,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.content.similarity import check_uniqueness
+from app.content.similarity import check_uniqueness, first_line
 from app.core.config import settings
 from app.core.exceptions import ValidationAppError
 from app.images.base import ImageGenerationError
@@ -51,6 +51,56 @@ def _hashtags_text(text: str, hashtags: list[str]) -> str:
     return text
 
 
+def _compose_unique(db: Session, project: Project, ai: AIService, *, rubric_code: str, rubric_desc: str | None,
+                    topic: str, angle: str | None, extra_instructions: str | None, automatic: bool, force: bool,
+                    exclude_id: int | None = None, avoid: list[str] | None = None):  # noqa: ANN202
+    """Compose a post and regenerate while it repeats this group's or a sibling group's posts.
+
+    Returns the least similar attempt: (data, embedding, report, attempts_meta).
+    """
+    from app.openai.context import sibling_project_ids
+
+    rs = ai.rs
+    siblings = sibling_project_ids(db, project)
+    avoid = list(avoid or [])
+    attempts_meta: list[dict] = []
+    best: tuple | None = None
+    for attempt in range(settings.MAX_REGENERATIONS + 1):
+        data = copywriter.compose_post(
+            ai, db, project, rubric_code=rubric_code, rubric_desc=rubric_desc,
+            topic=topic, angle=angle, avoid=avoid, automatic=automatic, force=force,
+            extra_instructions=extra_instructions,
+        )
+        text, cliches = editor.local_cleanup(data.get("text", ""))
+        if rs.AI_SEPARATE_EDITOR_PASS:
+            edited = editor.edit_post(ai, project, text, automatic=automatic)
+            text, more = editor.local_cleanup(edited.get("text", text))
+            cliches += more
+        data["text"] = _hashtags_text(text, data.get("hashtags", []))
+        vectors = ai.embed([f"{data.get('title', '')}\n{data.get('topic', '')}\n{data['text'][:1500]}"],
+                           project_id=project.id, automatic=automatic)
+        embedding = vectors[0] if vectors else None
+        report = check_uniqueness(
+            db, project.id, title=data.get("title"), topic=data.get("topic") or topic, cta=data.get("cta"),
+            embedding=embedding, window=settings.RECENT_POSTS_WINDOW,
+            semantic_threshold=float(rs.SIMILARITY_THRESHOLD), title_threshold=float(rs.TITLE_SIMILARITY_THRESHOLD),
+            cta_window=settings.CTA_REPEAT_WINDOW, exclude_id=exclude_id, sibling_ids=siblings,
+            opening=first_line(data["text"]),
+        )
+        attempts_meta.append({"attempt": attempt + 1, "ok": report.ok, "reasons": report.reasons,
+                              "max_semantic": report.max_semantic, "max_title": report.max_title,
+                              "removed_cliches": cliches})
+        score = (len(report.reasons), report.max_semantic)
+        if best is None or score < best[0]:
+            best = (score, data, embedding, report)
+        if report.ok:
+            break
+        avoid = list(dict.fromkeys([*avoid, *report.avoid_hints]))[-8:]
+        logger.info("Post for project %s too similar (%s), regenerating", project.id, report.reasons)
+    _, data, embedding, report = best
+    return data, embedding, report, attempts_meta
+
+
 def generate_post(
     db: Session,
     project: Project,
@@ -78,39 +128,9 @@ def generate_post(
     rubric_code = rubric_code or "educational"
     rubric = _rubric(db, project.id, rubric_code)
 
-    avoid: list[str] = []
-    attempts_meta: list[dict] = []
-    data: dict = {}
-    report = None
-    embedding: list[float] | None = None
-    for attempt in range(settings.MAX_REGENERATIONS + 1):
-        data = copywriter.compose_post(
-            ai, db, project, rubric_code=rubric_code, rubric_desc=rubric.description if rubric else None,
-            topic=topic, angle=angle, avoid=avoid, automatic=automatic, force=force,
-            extra_instructions=extra_instructions,
-        )
-        text, cliches = editor.local_cleanup(data.get("text", ""))
-        if rs.AI_SEPARATE_EDITOR_PASS:
-            edited = editor.edit_post(ai, project, text, automatic=automatic)
-            text, more = editor.local_cleanup(edited.get("text", text))
-            cliches += more
-        data["text"] = _hashtags_text(text, data.get("hashtags", []))
-        vectors = ai.embed([f"{data.get('title', '')}\n{data.get('topic', '')}\n{data['text'][:1500]}"],
-                           project_id=project.id, automatic=automatic)
-        embedding = vectors[0] if vectors else None
-        report = check_uniqueness(
-            db, project.id, title=data.get("title"), topic=data.get("topic") or topic, cta=data.get("cta"),
-            embedding=embedding, window=settings.RECENT_POSTS_WINDOW,
-            semantic_threshold=float(rs.SIMILARITY_THRESHOLD), title_threshold=float(rs.TITLE_SIMILARITY_THRESHOLD),
-            cta_window=settings.CTA_REPEAT_WINDOW,
-        )
-        attempts_meta.append({"attempt": attempt + 1, "ok": report.ok, "reasons": report.reasons,
-                              "max_semantic": report.max_semantic, "max_title": report.max_title,
-                              "removed_cliches": cliches})
-        if report.ok:
-            break
-        avoid = report.avoid_hints
-        logger.info("Post for project %s too similar (%s), regenerating", project.id, report.reasons)
+    data, embedding, report, attempts_meta = _compose_unique(
+        db, project, ai, rubric_code=rubric_code, rubric_desc=rubric.description if rubric else None, topic=topic,
+        angle=angle, extra_instructions=extra_instructions, automatic=automatic, force=force)
 
     similarity_warning = bool(report and not report.ok)
     post = Post(
@@ -153,6 +173,36 @@ def generate_post(
     use_image = project.images_enabled if with_image is None else with_image
     if use_image and post.image_prompt:
         generate_image_for_post(db, post, ai=ai, automatic=automatic, force=force)
+    db.flush()
+    return post
+
+
+def rewrite_post(db: Session, post: Post, *, ai: AIService | None = None, automatic: bool = False,
+                 force: bool = False, avoid: list[str] | None = None) -> Post:
+    """Rewrite the text of an unpublished post so it no longer repeats other posts (image and time are kept)."""
+    if post.status in (PostStatus.PUBLISHED.value, PostStatus.PUBLISHING.value):
+        raise ValidationAppError("Опубликованный пост переписать нельзя")
+    ai = ai or AIService(db)
+    project = db.get(Project, post.project_id)
+    rubric = _rubric(db, project.id, post.category or "")
+    data, embedding, report, attempts_meta = _compose_unique(
+        db, project, ai, rubric_code=post.category or "educational",
+        rubric_desc=rubric.description if rubric else None, topic=post.topic or post.title or "",
+        angle=(post.generation_metadata or {}).get("angle"),
+        extra_instructions="Перепиши по-новому: другой заголовок, другое начало, другая структура и примеры.",
+        automatic=automatic, force=force, exclude_id=post.id,
+        avoid=[*(avoid or []), post.title or "", f"начало «{first_line(post.text)[:80]}»"])
+    post.title = (data.get("title") or post.title or "")[:500]
+    post.text = data.get("text", post.text)
+    post.topic = data.get("topic") or post.topic
+    post.cta = data.get("cta")
+    post.hashtags = data.get("hashtags", [])
+    post.embedding = embedding
+    meta = dict(post.generation_metadata or {})
+    meta["rewrites"] = int(meta.get("rewrites", 0)) + 1
+    meta["uniqueness_attempts"] = attempts_meta
+    meta["similarity_warning"] = bool(report and not report.ok)
+    post.generation_metadata = meta
     db.flush()
     return post
 

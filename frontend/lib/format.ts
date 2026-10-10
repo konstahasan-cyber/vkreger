@@ -37,6 +37,7 @@ export const TONES: Record<string, string> = {
 export const JOB_LABELS: Record<string, string> = {
   project_setup: "AI-анализ бизнеса", content_plan: "Контент-план", generate_posts: "Генерация постов",
   launch_community: "Запуск сообщества", brand_import: "Анализ стиля компании", design_generate: "Аватар и обложка", fill_queue: "Заполнение очереди", analyst_review: "Ревизия стратегии",
+  network_launch: "Запуск сети групп", network_dedupe: "Переписывание похожих постов",
 };
 
 export const RUBRIC_LABELS: Record<string, string> = {

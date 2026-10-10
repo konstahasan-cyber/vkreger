@@ -83,6 +83,7 @@ class ProjectUpdate(BaseModel):
     auto_reply_mode: AutoReplyMode | None = None
     auto_reply_types: list[InboxClass] | None = None
     status: str | None = None
+    network: str | None = Field(default=None, max_length=255)
 
     @field_validator("posting_times")
     @classmethod
@@ -137,6 +138,7 @@ class ProjectOut(ORMModel):
     custom_tone_prompt: str | None
     vk_account_id: int | None
     status: str
+    network: str | None = None
     timezone: str
     posting_times: list[str]
     autopilot: bool

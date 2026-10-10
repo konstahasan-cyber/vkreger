@@ -108,6 +108,12 @@ def update_project(project_id: int, body: ProjectUpdate, request: Request, db: S
         if key == "auto_reply_types" and value is not None:
             value = [_enum_value(v) for v in value]
         setattr(project, key, _enum_value(value))
+    if changes.get("network"):
+        from app.services.network_service import add_to_network
+
+        add_to_network(db, project, changes["network"])
+    elif "network" in changes:
+        project.network = None
     audit(db, user.id, "project.update", "project", project.id, {"fields": sorted(changes)}, client_ip(request))
     db.commit()
     return _detail(db, project)

@@ -9,6 +9,7 @@ const NAV: { section: string; items: [string, string, string][] }[] = [
   { section: "Работа", items: [
     ["/", "🏠", "Главная"],
     ["/projects", "🚀", "Проекты"],
+    ["/networks", "🔗", "Сеть групп"],
     ["/content", "📝", "Посты"],
     ["/calendar", "📅", "Календарь"],
     ["/messages", "💬", "Сообщения"],

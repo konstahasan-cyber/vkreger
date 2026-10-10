@@ -81,6 +81,26 @@ backend/app/
 Статическая часть (instructions) стоит первой, а `prompt_cache_key=project:{id}` позволяет
 пользоваться prompt caching OpenAI.
 
+### Сеть групп (много групп на одну тему)
+
+* `projects.network` объединяет проекты групп одной тематики. Каждая группа — отдельный проект
+  со своей очередью, расписанием и входящими.
+* Быстрый ввод (`POST /networks/bulk`): строки «ID ключ», «ключ» или «ссылка; ключ». Группа
+  определяется через `groups.getById` по ключу сообщества. Ключ хранится зашифрованным, а в
+  ответах API маскируется.
+* STRATEGIST вызывается один раз на сеть. Остальные группы получают копию анализа, рубрик и
+  стратегии (`network_service.copy_strategy`).
+* Каждая группа получает свой «голос» (`app/content/personas.py`): кто пишет, структура поста,
+  первая строка, длина и эмодзи. Блок `author_voice` передаётся в контент-план и в генерацию поста.
+* Контент-план видит темы, уже занятые другими группами (`network_taken`), а генерация видит их
+  последние посты (`network_posts`). Планы составляются по очереди, посты пишутся параллельно.
+* Проверка повторов (`check_uniqueness(sibling_ids=…)`) сравнивает пост с постами других групп
+  сети по заголовку, первой строке и эмбеддингу. Похожий пост переписывается, а если все попытки
+  остались похожими, сохраняется наименее похожий вариант.
+* `GET /networks/similar` и задача `network_dedupe` находят похожие посты в уже написанном и
+  переписывают более новый неопубликованный пост (картинка и время остаются прежними).
+* Время публикации групп сдвигается на +4 минуты на каждую группу.
+
 ## 4. Схема БД (основные таблицы)
 
 | Таблица | Ключевые поля |
@@ -91,7 +111,7 @@ backend/app/
 | `proxies` | scheme, host, port, username, password🔒, status (unknown/alive/dead), external_ip, country, latency_ms, last_checked_at, last_error, fail_count |
 | `vk_accounts` | name, vk_user_id, access_token🔒, status (new/active/invalid/error/disabled), last_checked_at, proxy_id (unique, nullable), auto_replace_proxy, last_error, info JSON |
 | `communities` | vk_group_id, name, screen_name, account_id, project_id, community_token🔒, is_admin, members_count, event_mode (none/callback/longpoll), callback_secret🔒, confirmation_code, callback_server_id, longpoll_ts, settings JSON |
-| `projects` | name, business_name, theme, niche, city, target_audience, product_description, advantages, website, contacts, goal, posts_per_day, posts_per_week, tone, custom_tone_prompt, vk_account_id, status, setup_proposal JSON, context_summary, brand JSON, content_rules JSON, timezone, posting_times JSON, autopilot, auto_approve, auto_reply mode, auto_reply_types, image settings |
+| `projects` | name, network, business_name, theme, niche, city, target_audience, product_description, advantages, website, contacts, goal, posts_per_day, posts_per_week, tone, custom_tone_prompt, vk_account_id, status, setup_proposal JSON, context_summary, brand JSON, content_rules JSON, timezone, posting_times JSON, autopilot, auto_approve, auto_reply mode, auto_reply_types, image settings |
 | `rubrics` | project_id, code, name, description, weight, is_active |
 | `strategies` | project_id, version, is_active, data JSON, source (setup/analyst/manual), reasoning |
 | `content_plan_items` | project_id, rubric_code, topic, angle, planned_for, status (planned/used/skipped), post_id |

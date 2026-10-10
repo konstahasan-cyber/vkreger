@@ -30,6 +30,8 @@ class Project(TimestampMixin, Base):
 
     vk_account_id: Mapped[int | None] = mapped_column(ForeignKey("vk_accounts.id", ondelete="SET NULL"), index=True)
     status: Mapped[str] = mapped_column(String(32), default=ProjectStatus.DRAFT.value, index=True)
+    # Groups on the same topic share a network: posts are checked for repeats across the whole network
+    network: Mapped[str | None] = mapped_column(String(255), index=True)
 
     # AI artefacts (compact, re-used as context instead of the whole history)
     setup_proposal: Mapped[dict] = mapped_column(JSONType, default=dict)

@@ -29,6 +29,7 @@ class FakeVK:
         self.refreshes = 0
         self.community_forbidden: set[str] = set()
         self.tokens_used: list[tuple[str, str]] = []
+        self.key_groups: dict[str, int] = {}  # extra community keys → their group
 
     def fail(self, method: str, code: int, msg: str = "error", times: int = 1) -> None:
         self.fail_next.setdefault(method, []).extend([{"error_code": code, "error_msg": msg}] * times)
@@ -76,7 +77,7 @@ class FakeVK:
         token = params.get("access_token")
         if token == COMMUNITY_TOKEN and method in self.community_forbidden:
             return httpx.Response(200, json={"error": {"error_code": 27, "error_msg": "Group authorization failed: method is unavailable with group auth."}})
-        if token not in (VALID_USER_TOKEN, COMMUNITY_TOKEN):
+        if token not in (VALID_USER_TOKEN, COMMUNITY_TOKEN) and token not in self.key_groups:
             return httpx.Response(200, json={"error": {"error_code": 5, "error_msg": "User authorization failed"}})
         handler = getattr(self, "m_" + method.replace(".", "_"), None)
         if handler is None:
@@ -94,7 +95,11 @@ class FakeVK:
         return {"count": len(self.groups), "items": list(self.groups.values())}
 
     def m_groups_getById(self, p: dict) -> dict:
-        gid = int(p["group_id"])
+        if "group_id" not in p:  # community key without an ID → the key's own group
+            gid = self.key_groups.get(p.get("access_token"), 101)
+            return {"groups": [self.groups[gid]], "profiles": []}
+        gid = int(p["group_id"]) if str(p["group_id"]).isdigit() else next(
+            g for g, v in self.groups.items() if v.get("screen_name") == p["group_id"])
         return {"groups": [self.groups[gid]], "profiles": []}
 
     def m_groups_create(self, p: dict) -> dict:

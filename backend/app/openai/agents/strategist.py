@@ -5,11 +5,13 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.content.personas import persona_block
 from app.openai.agents.base import COMMON_RULES, AgentRole
 from app.openai.context import (
     analytics_summary,
     brand_context,
     content_rules,
+    network_plan_topics,
     now_local_hint,
     project_brief,
     project_context,
@@ -97,6 +99,8 @@ PLAN_INSTRUCTIONS = COMMON_RULES + """
 не повторять уже опубликованные (см. recent_posts_summary) и соответствовать долям рубрик.
 Для каждой темы укажи rubric_code (только из списка рубрик), конкретную тему, угол подачи (angle)
 и смещение в днях от начала периода (day_offset).
+Если передан author_voice — подбирай темы и углы, которые подходят этому голосу и формату.
+Если передан network_taken — эти темы уже у других групп той же сети: не бери их и близкие к ним.
 """
 
 PLAN_SCHEMA = obj({
@@ -116,7 +120,9 @@ def content_plan(ai: AIService, db: Session, project, *, count: int, days: int, 
         "brand_context": brand_context(project),
         "content_rules": content_rules(project, db),
         "strategy": strategy_block,
+        "author_voice": persona_block(project),
         "recent_posts_summary": recent_posts_summary(db, project.id),
+        "network_taken": network_plan_topics(db, project),
         "analytics_summary": analytics_summary(db, project.id),
         "task": f"Сегодня {now_local_hint(project.timezone)}. Нужно тем: {count}, период: {days} дн.",
     }

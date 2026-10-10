@@ -104,8 +104,14 @@ def content_rules(project: Project, db: Session | None = None) -> str:
         lines.append("Не делать: " + "; ".join(_clip(x, 100) for x in rules["dont"][:8]))
     if rules.get("brand_tone"):
         lines.append(f"Тон бренда: {_clip(rules['brand_tone'], 200)}")
-    length = rules.get("post_length") or "600-1200 символов"
-    lines.append(f"Длина поста: {length}. Хештегов: 2-5. Эмодзи — умеренно.")
+    from app.content.personas import project_persona
+
+    persona = project_persona(project)
+    if persona:
+        lines.append(f"Длина поста: {persona['length']}. Хештегов: 2-5. Эмодзи: {persona['emoji']}.")
+    else:
+        length = rules.get("post_length") or "600-1200 символов"
+        lines.append(f"Длина поста: {length}. Хештегов: 2-5. Эмодзи — умеренно.")
     lines.append("Запрещено: выдумывать цены/факты/отзывы, которых нет в данных; кликбейт; канцелярит; "
                  "фразы-штампы («в современном мире», «не секрет, что», «давайте разберёмся», «важно отметить»).")
     return "\n".join(lines)
@@ -124,6 +130,60 @@ def recent_posts_summary(db: Session, project_id: int, limit: int | None = None)
     return "\n".join(
         f"- [{c or '-'}] {_clip(t or tp, 80)} | CTA: {_clip(cta, 50) or '-'}" for c, t, tp, cta in rows
     )
+
+
+def sibling_project_ids(db: Session, project: Project) -> list[int]:
+    """Other active projects of the same network (groups on one topic)."""
+    if not project.network:
+        return []
+    from app.models.enums import ProjectStatus
+
+    return list(db.execute(
+        select(Project.id).where(Project.network == project.network, Project.id != project.id,
+                                 Project.status != ProjectStatus.ARCHIVED.value)
+    ).scalars())
+
+
+def network_posts_summary(db: Session, project: Project, limit: int = 30) -> str:
+    """What sibling groups already have: titles and first lines — so the model doesn't repeat them."""
+    ids = sibling_project_ids(db, project)
+    if not ids:
+        return ""
+    rows = db.execute(
+        select(Post.title, Post.topic, Post.text)
+        .where(Post.project_id.in_(ids), Post.status != PostStatus.FAILED.value)
+        .order_by(Post.created_at.desc())
+        .limit(limit)
+    ).all()
+    if not rows:
+        return ""
+    lines = ["Другие группы на эту же тему уже написали (НЕ повторяй эти темы, заголовки, первые фразы и структуру):"]
+    for title, topic, text in rows:
+        first = (text or "").strip().split("\n", 1)[0]
+        lines.append(f"- {_clip(title or topic, 70)} | начало: «{_clip(first, 70)}»")
+    return "\n".join(lines)
+
+
+def network_plan_topics(db: Session, project: Project, limit: int = 80) -> str:
+    """Topics already planned or written by sibling groups — for a content plan that doesn't overlap."""
+    from app.models.content import ContentPlanItem
+
+    ids = sibling_project_ids(db, project)
+    if not ids:
+        return ""
+    planned = db.execute(
+        select(ContentPlanItem.topic).where(ContentPlanItem.project_id.in_(ids))
+        .order_by(ContentPlanItem.id.desc()).limit(limit)
+    ).scalars().all()
+    written = db.execute(
+        select(Post.topic).where(Post.project_id.in_(ids), Post.topic.is_not(None))
+        .order_by(Post.created_at.desc()).limit(limit // 2)
+    ).scalars().all()
+    topics = list(dict.fromkeys(_clip(t, 90) for t in [*planned, *written] if t))
+    if not topics:
+        return ""
+    return ("Эти темы уже заняты другими группами сети — придумай ДРУГИЕ темы и другие углы подачи:\n"
+            + "\n".join(f"- {t}" for t in topics[:limit]))
 
 
 def analytics_summary(db: Session, project_id: int) -> str:
