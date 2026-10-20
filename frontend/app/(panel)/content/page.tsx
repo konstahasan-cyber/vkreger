@@ -178,7 +178,9 @@ function PostEditor({ post, onClose, onSaved }: { post: Post; onClose: () => voi
       <Alerts error={action.error} message={action.message} />
       <div className="row small" style={{ marginBottom: 12 }}><Badge value={p.status} /><span className="badge info">{rubricLabel(p.category)}</span>{p.vk_post_id && <span className="muted">пост VK №{p.vk_post_id}</span>}</div>
       <Field label="Заголовок (для вас, в VK публикуется только текст)"><input disabled={!editable} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></Field>
-      <Field label="Текст поста"><textarea rows={12} disabled={!editable} value={form.text} onChange={(e) => setForm({ ...form, text: e.target.value })} /></Field>
+      {p.status === "published" && p.vk_post_id ? <PublishedEditor post={p} onSaved={apply} /> : (
+        <Field label="Текст поста"><textarea rows={12} disabled={!editable} value={form.text} onChange={(e) => setForm({ ...form, text: e.target.value })} /></Field>
+      )}
       <div className="card soft">
         <h3>🖼 Картинка</h3>
         <div className="grid-2">
@@ -214,5 +216,41 @@ function PostEditor({ post, onClose, onSaved }: { post: Post; onClose: () => voi
       }}>⧉ Создать копию поста</button>
       <details style={{ marginTop: 8 }}><summary className="small muted">Технические детали генерации</summary><pre className="json">{JSON.stringify(p.generation_metadata, null, 2)}</pre></details>
     </Modal>
+  );
+}
+
+function PublishedEditor({ post, onSaved }: { post: Post; onSaved: (p: Post | undefined) => void }) {
+  const [text, setText] = useState(post.text);
+  const [keepImage, setKeepImage] = useState(true);
+  const action = useAction();
+  const history = ((post.generation_metadata?.history as { text: string; at: string }[] | undefined) || []).slice().reverse();
+  const hasImage = Boolean(post.image_url) || (post.attachments || []).some((a) => String(a).startsWith("photo"));
+  return (
+    <div className="card soft">
+      <h3>✏️ Текст поста в VK</h3>
+      <p className="small muted" style={{ marginTop: 0 }}>Пост уже опубликован. Изменения сохранятся прямо в VK: дата, лайки и комментарии останутся.</p>
+      <Alerts error={action.error} message={action.message} />
+      <textarea rows={12} value={text} onChange={(e) => setText(e.target.value)} />
+      {hasImage && <label className="check" style={{ margin: "8px 0" }}><input type="checkbox" checked={keepImage} onChange={(e) => setKeepImage(e.target.checked)} /> 🖼 Оставить картинку</label>}
+      <div className="row" style={{ marginTop: 8 }}>
+        <button className="primary" disabled={action.busy || !text.trim() || (text === post.text && keepImage)} onClick={async () => {
+          if (!confirm("Изменить этот пост прямо в VK?")) return;
+          onSaved(await action.run(() => api<Post>(`/posts/${post.id}/edit-vk`, { method: "POST", json: { text, keep_image: keepImage } }), "Пост изменён в VK"));
+        }}>{action.busy ? "Сохраняем…" : "💾 Сохранить в VK"}</button>
+        {text !== post.text && <button className="ghost" onClick={() => setText(post.text)}>Сбросить</button>}
+      </div>
+      {history.length > 0 && (
+        <details style={{ marginTop: 10 }}>
+          <summary className="small muted">Прежние версии текста ({history.length})</summary>
+          {history.map((h, i) => (
+            <div key={i} className="small" style={{ borderTop: "1px solid var(--border)", padding: "8px 0" }}>
+              <div className="muted">до {fmtDate(h.at)}</div>
+              <div style={{ whiteSpace: "pre-wrap", maxHeight: 140, overflow: "auto" }}>{h.text}</div>
+              <button className="small" onClick={() => setText(h.text)}>↩ Вернуть этот текст в редактор</button>
+            </div>
+          ))}
+        </details>
+      )}
+    </div>
   );
 }

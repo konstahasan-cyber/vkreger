@@ -73,3 +73,36 @@ def compose_post(ai: AIService, db: Session, project, *, rubric_code: str, rubri
         automatic=automatic,
         force=force,
     )
+
+
+RETHEME_INSTRUCTIONS = COMMON_RULES + """
+Роль: COPYWRITER+EDITOR. Сообщество сменило тематику. Перепиши старый пост под НОВЫЙ бизнес из project_context:
+сохрани формат и рубрику поста (совет остаётся советом, кейс — кейсом, вопрос к подписчикам — вопросом),
+примерную длину, количество абзацев и эмодзи, но тему, примеры, термины, CTA и хештеги возьми из новой тематики.
+Старую тематику не упоминай вообще. Без markdown-разметки, абзацы через пустую строку.
+Если передан author_voice — пиши этим голосом. Не повторяй заголовки и первые фразы из already_written.
+Поле text — финальный текст поста целиком (с CTA и хештегами в конце).
+"""
+
+
+def retheme_post(ai: AIService, db: Session, project, *, old_text: str, rubric_code: str | None,  # noqa: ANN001
+                 already_written: list[str], automatic: bool = False, force: bool = False) -> dict[str, Any]:
+    blocks = {
+        "project_context": project_context(project),
+        "brand_context": brand_context(project),
+        "content_rules": content_rules(project, db),
+        "author_voice": persona_block(project),
+        "already_written": "\n".join(f"- {t}" for t in already_written[-20:]),
+        "old_post": f"Рубрика: {rubric_code or '-'}\n\n{old_text[:4000]}",
+        "task": "Перепиши old_post под новую тематику сообщества.",
+    }
+    return ai.run(
+        operation="post_retheme",
+        agent=f"{AgentRole.COPYWRITER.value}+{AgentRole.EDITOR.value}",
+        instructions=RETHEME_INSTRUCTIONS,
+        input_text=render_blocks(blocks),
+        schema=COMPOSE_SCHEMA,
+        project_id=project.id,
+        automatic=automatic,
+        force=force,
+    )

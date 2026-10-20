@@ -46,6 +46,7 @@ export default function ProjectPage() {
           <div className="row">
             <Link href={`/content?project_id=${project.id}`}><button>📝 Посты</button></Link>
             <Link href={`/analytics?project_id=${project.id}`}><button>📊 Аналитика</button></Link>
+            <Link href={`/projects/${project.id}/retheme`}><button>🔄 Изменить тематику</button></Link>
           </div>
         )}
       </div>

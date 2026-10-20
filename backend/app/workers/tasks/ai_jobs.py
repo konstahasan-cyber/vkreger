@@ -362,3 +362,37 @@ def network_dedupe_task(job_id: int) -> dict:
         return {"similar_pairs": len(pairs), "rewritten": rewritten, "failed": failed}
 
     return run_job(job_id, fn)
+
+
+def _progress(db: Session, job: Job):  # noqa: ANN202
+    def report(done: int, total: int) -> None:
+        job.result = {"done": done, "total": total}
+        db.commit()
+
+    return report
+
+
+@celery_app.task(name="app.workers.tasks.ai_jobs.retheme_prepare")
+def retheme_prepare_task(job_id: int) -> dict:
+    """New topic for a community: new strategy + a proposed new text for every post (nothing sent to VK yet)."""
+    from app.services import retheme_service
+
+    def fn(db: Session, job: Job) -> dict:
+        project = project_service.get_project(db, job.project_id)
+        return retheme_service.prepare(db, project, job.params["brief"], job.params.get("scope", "all"),
+                                       force=job.params.get("force", False), progress=_progress(db, job))
+
+    return run_job(job_id, fn)
+
+
+@celery_app.task(name="app.workers.tasks.ai_jobs.retheme_apply")
+def retheme_apply_task(job_id: int) -> dict:
+    """Write the accepted new texts: published posts via wall.edit, the rest locally."""
+    from app.services import retheme_service
+
+    def fn(db: Session, job: Job) -> dict:
+        project = project_service.get_project(db, job.project_id)
+        return retheme_service.apply(db, project, keep_image=job.params.get("keep_image", True),
+                                     post_ids=job.params.get("post_ids"), progress=_progress(db, job))
+
+    return run_job(job_id, fn)

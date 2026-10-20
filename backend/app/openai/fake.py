@@ -125,6 +125,17 @@ class FakeProvider:
             "editor_notes": ["Убраны повторы"],
         }
 
+    def _op_post_retheme(self, input_text: str, seed: int) -> dict:
+        biz = self._business(input_text)
+        variant = seed % 10000
+        return {
+            "title": f"{biz}: новый взгляд ({variant})",
+            "topic": f"{biz} — пост {variant}",
+            "text": f"{biz}: новый взгляд {variant}.\n\nПост переписан под новую тематику.\n\nПишите в сообщения!\n\n#новое",
+            "cta": "Пишите в сообщения", "hashtags": ["#новое"],
+            "image_prompt": "Minimal illustration, no text", "editor_notes": [],
+        }
+
     def _op_inbox_triage(self, input_text: str, seed: int) -> dict:
         text = input_text.lower()
         cls = "OTHER"

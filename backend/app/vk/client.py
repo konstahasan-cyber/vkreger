@@ -183,6 +183,14 @@ class VKClient:
         )
         return int(resp["post_id"])
 
+    def wall_edit(self, group_id: int, post_id: int, message: str, *, attachments: list[str] | None = None) -> Any:
+        """Change the text of a published community post (date, likes and comments stay).
+
+        VK replaces the attachments with the ones passed: pass the old ones to keep the image.
+        """
+        return self.call("wall.edit", owner_id=-abs(group_id), post_id=post_id, message=message,
+                         attachments=",".join(attachments) if attachments else None)
+
     def wall_pin(self, group_id: int, post_id: int) -> Any:
         return self.call("wall.pin", owner_id=-abs(group_id), post_id=post_id)
 

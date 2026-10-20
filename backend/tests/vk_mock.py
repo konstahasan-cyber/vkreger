@@ -29,7 +29,8 @@ class FakeVK:
         self.refreshes = 0
         self.community_forbidden: set[str] = set()
         self.tokens_used: list[tuple[str, str]] = []
-        self.key_groups: dict[str, int] = {}  # extra community keys → their group
+        self.key_groups: dict[str, int] = {}
+        self.edits: list[tuple[int, int]] = []  # extra community keys → their group
 
     def fail(self, method: str, code: int, msg: str = "error", times: int = 1) -> None:
         self.fail_next.setdefault(method, []).extend([{"error_code": code, "error_msg": msg}] * times)
@@ -82,7 +83,10 @@ class FakeVK:
         handler = getattr(self, "m_" + method.replace(".", "_"), None)
         if handler is None:
             return httpx.Response(200, json={"response": 1})
-        return httpx.Response(200, json={"response": handler(params)})
+        result = handler(params)
+        if isinstance(result, dict) and "__error__" in result:
+            return httpx.Response(200, json={"error": result["__error__"]})
+        return httpx.Response(200, json={"response": result})
 
     # ---- methods
     def m_users_get(self, p: dict) -> list:
@@ -126,6 +130,15 @@ class FakeVK:
         if guid:
             self.guids[guid] = pid
         return {"post_id": pid}
+
+    def m_wall_edit(self, p: dict) -> int:
+        for item in self.walls.get(int(p["owner_id"]), []):
+            if item["id"] == int(p["post_id"]):
+                item["text"] = p.get("message", "")
+                item["attachments"] = p.get("attachments")
+                self.edits.append((int(p["owner_id"]), int(p["post_id"])))
+                return 1
+        return {"__error__": {"error_code": 100, "error_msg": "post not found"}}
 
     def m_wall_get(self, p: dict) -> dict:
         items = self.walls.get(int(p["owner_id"]), [])
